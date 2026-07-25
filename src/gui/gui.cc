@@ -1,5 +1,6 @@
 #include "../../include/gui/gui.hh"
 #include "../../include/gui/utils.hh"
+#include "../../include/kernels/ids.hh"
 #include <string>
 
 namespace guiVidi {
@@ -31,10 +32,16 @@ void VideoPlayerGUI::LayoutControls(int width, int height) {
         SetWindowPos(g_hSkipBack, NULL, MARGIN, buttonY, 40, BUTTON_ROW_H, SWP_NOZORDER);
     if (g_hPlayBtn)
         SetWindowPos(g_hPlayBtn, NULL, MARGIN + 45, buttonY, 40, BUTTON_ROW_H, SWP_NOZORDER);
+
+    // --- INI YANG KURANG ---
+    if (g_hPauseBtn)
+        SetWindowPos(g_hPauseBtn, NULL, MARGIN + 90, buttonY, 40, BUTTON_ROW_H, SWP_NOZORDER);
+
+    // Geser Stop & SkipForward biar nggak numpuk sama Pause
     if (g_hStopBtn)
-        SetWindowPos(g_hStopBtn, NULL, MARGIN + 90, buttonY, 40, BUTTON_ROW_H, SWP_NOZORDER);
+        SetWindowPos(g_hStopBtn, NULL, MARGIN + 135, buttonY, 40, BUTTON_ROW_H, SWP_NOZORDER);
     if (g_hSkipForward)
-        SetWindowPos(g_hSkipForward, NULL, MARGIN + 135, buttonY, 40, BUTTON_ROW_H, SWP_NOZORDER);
+        SetWindowPos(g_hSkipForward, NULL, MARGIN + 180, buttonY, 40, BUTTON_ROW_H, SWP_NOZORDER);
 
     if (g_hTimeLabel)
         SetWindowPos(g_hTimeLabel, NULL, width - MARGIN - 150, buttonY, 100, BUTTON_ROW_H, SWP_NOZORDER);
@@ -46,89 +53,156 @@ void VideoPlayerGUI::LayoutControls(int width, int height) {
 // WINDOW PROC
 // ==========================================
 LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    VideoPlayerGUI* pGUI = nullptr;
+    VideoPlayerGUI* self = reinterpret_cast<VideoPlayerGUI*>(
+        GetWindowLongPtr(hwnd, GWLP_USERDATA));
 
-    if (uMsg == WM_CREATE) {
-        CREATESTRUCT* pCreate = reinterpret_cast<CREATESTRUCT*>(lParam);
-        pGUI = reinterpret_cast<VideoPlayerGUI*>(pCreate->lpCreateParams);
-        SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pGUI));
-        pGUI->g_hMainWnd = hwnd;
+    switch (uMsg) {
+        case WM_CREATE:
+        {
+            CREATESTRUCT* pCreate = reinterpret_cast<CREATESTRUCT*>(lParam);
+            VideoPlayerGUI* pThis = reinterpret_cast<VideoPlayerGUI*>(pCreate->lpCreateParams);
+            SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)pThis);
 
-        pGUI->CreateMenuBar(hwnd);
-        pGUI->CreateControls(hwnd);
+            pThis->CreateMenuBar(hwnd);
+            pThis->CreateControls(hwnd);
+            return 0;
+        }   // <-- kurung tutup WAJIB ada persis di sini, sebelum case berikutnya
 
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        pGUI->LayoutControls(rc.right - rc.left, rc.bottom - rc.top);
-        return 0;
-    } else {
-        pGUI = reinterpret_cast<VideoPlayerGUI*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
-    }
-
-    if (pGUI) {
-        switch (uMsg) {
-        case WM_COMMAND:
-            switch (LOWORD(wParam)) {
-            case IDM_QUIT:
-                PostQuitMessage(0);
-                break;
-            case IDM_ABOUT:
-                MessageBoxW(hwnd, L"Video Player Clone v1.0", L"About", MB_OK | MB_ICONINFORMATION);
-                break;
-            case IDM_OPEN_FILE:
-                MessageBoxW(hwnd, L"Fitur Open File akan segera hadir!", L"Media", MB_OK);
-                break;
-            case IDC_BACK:
-                MessageBoxW(hwnd, L"Toolbar: Back", L"Info", MB_OK);
-                break;
-            case IDC_FORWARD:
-                MessageBoxW(hwnd, L"Toolbar: Forward", L"Info", MB_OK);
-                break;
-            case IDC_SETTINGS:
-                MessageBoxW(hwnd, L"Toolbar: Settings", L"Info", MB_OK);
-                break;
-            case IDC_PLAY:
-                MessageBoxW(hwnd, L"▶ Play", L"Info", MB_OK);
-                break;
-            case IDC_PAUSE:
-                MessageBoxW(hwnd, L"⏸ Pause", L"Info", MB_OK);
-                break;
-            case IDC_STOP:
-                MessageBoxW(hwnd, L"⏹ Stop", L"Info", MB_OK);
-                break;
-            case IDC_SKIP_BACK:
-                MessageBoxW(hwnd, L"⏮ Skip Backward", L"Info", MB_OK);
-                break;
-            case IDC_SKIP_FORWARD:
-                MessageBoxW(hwnd, L"⏭ Skip Forward", L"Info", MB_OK);
-                break;
-            }
-            break;
-
-        case WM_HSCROLL: {
-            HWND hCtrl = (HWND)lParam;
-            if (hCtrl == pGUI->g_hProgress) {
-                int pos = (int)SendMessageW(pGUI->g_hProgress, TBM_GETPOS, 0, 0);
-                std::wstring text = L"Seek: " + std::to_wstring(pos) + L"%";
-                SetWindowTextW(pGUI->g_hTimeLabel, text.c_str());
-            }
-            break;
-        }
-
-        case WM_SIZE: {
-            int width = LOWORD(lParam);
-            int height = HIWORD(lParam);
-            pGUI->LayoutControls(width, height);
-            break;
-        }
-
-        case WM_DESTROY:
-            PostQuitMessage(0);
+        case WM_SIZE:
+        {
+            if (self) self->LayoutControls(LOWORD(lParam), HIWORD(lParam));
             return 0;
         }
+
+        case WM_COMMAND:
+            if (self) self->OnCommand(wParam, lParam);
+            return 0;
+
+        case WM_HSCROLL:
+            if (self) self->OnHScroll(wParam, lParam);
+            return 0;
+
+        case WM_TIMER:
+            if (wParam == ID_TIMER_UPDATE && self) self->OnTimerTick();
+            return 0;
+
+        case WM_APP_MEDIA_READY:
+            if (self) self->SetPlayPauseUI(true);
+            return 0;
+
+        case WM_APP_PLAYBACK_ENDED:
+            if (self) self->SetPlayPauseUI(false);
+            return 0;
+
+        case WM_APP_MEDIA_ERROR:
+            MessageBox(hwnd, L"Gagal memutar video.", L"Error", MB_ICONERROR);
+            return 0;
+
+        case WM_DESTROY:
+            KillTimer(hwnd, ID_TIMER_UPDATE);
+            PostQuitMessage(0);
+            return 0;
+    }
+    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
+
+void VideoPlayerGUI::OnCommand(WPARAM wParam, LPARAM lParam) {
+    switch (LOWORD(wParam)) {
+        case IDC_BTN_PLAY:
+            m_player.Play();
+            SetPlayPauseUI(true);
+            break;
+        case IDC_BTN_PAUSE:
+            m_player.Pause();
+            SetPlayPauseUI(false);
+            break;
+        case IDC_BTN_STOP:
+            m_player.Stop();
+            SetPlayPauseUI(false);
+            SendMessage(g_hProgress, TBM_SETPOS, TRUE, 0);
+            break;
+        case IDC_BTN_SKIPBACK: {
+            double pos = m_player.GetPosition();
+            m_player.Seek(pos > 10.0 ? pos - 10.0 : 0.0);
+            break;
+        }
+        case IDC_BTN_SKIPFORWARD: {
+            double pos = m_player.GetPosition();
+            double dur = m_player.GetDuration();
+            m_player.Seek((pos + 10.0 < dur) ? pos + 10.0 : dur);
+            break;
+        }
+        case IDM_FILE_OPEN:
+            OpenFileDialog();
+            break;
+    }
+}
+void VideoPlayerGUI::OnHScroll(WPARAM wParam, LPARAM lParam) {
+    HWND hCtrl = (HWND)lParam;
+    int code = LOWORD(wParam);
+
+    if (hCtrl == g_hProgress) {
+        if (code == TB_THUMBTRACK || code == TB_THUMBPOSITION) {
+            m_isDraggingProgress = true;  // freeze auto-update selama drag
+        }
+        if (code == TB_ENDTRACK) {
+            int pos = (int)SendMessage(g_hProgress, TBM_GETPOS, 0, 0);
+            double dur = m_player.GetDuration();
+            double targetSec = (pos / 1000.0) * dur;
+            m_player.Seek(targetSec);
+            m_isDraggingProgress = false;
+        }
+    }
+    else if (hCtrl == g_hVolume) {
+        int vol = (int)SendMessage(g_hVolume, TBM_GETPOS, 0, 0);
+        m_player.SetVolume(vol / 100.0f);
+    }
+}
+void VideoPlayerGUI::OnTimerTick() {
+    if (m_isDraggingProgress) return; // jangan overwrite pas user lagi drag
+
+    double pos = m_player.GetPosition();
+    double dur = m_player.GetDuration();
+
+    if (dur > 0.0) {
+        int sliderPos = static_cast<int>((pos / dur) * 1000.0);
+        SendMessage(g_hProgress, TBM_SETPOS, TRUE, sliderPos);
     }
 
-    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    UpdateTimeLabel(pos, dur);
+}
+
+void VideoPlayerGUI::UpdateTimeLabel(double posSeconds, double durSeconds) {
+    wchar_t buf[64];
+    int posMin = (int)posSeconds / 60, posSec = (int)posSeconds % 60;
+    int durMin = (int)durSeconds / 60, durSec = (int)durSeconds % 60;
+
+    swprintf_s(buf, L"%02d:%02d / %02d:%02d", posMin, posSec, durMin, durSec);
+    SetWindowText(g_hTimeLabel, buf);
+}
+
+void VideoPlayerGUI::SetPlayPauseUI(bool playing) {
+    m_isPlaying = playing;
+    EnableWindow(g_hPlayBtn, !playing);
+    EnableWindow(g_hPauseBtn, playing);
+}
+
+void VideoPlayerGUI::OpenFileDialog() {
+    wchar_t filePath[MAX_PATH] = L"";
+
+    OPENFILENAME ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = g_hMainWnd;
+    ofn.lpstrFilter = L"Video Files\0*.mp4;*.avi;*.wmv;*.mkv\0All Files\0*.*\0";
+    ofn.lpstrFile = filePath;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+
+    if (GetOpenFileName(&ofn)) {
+        m_player.OpenFile(filePath);
+        // playback beneran mulai setelah WM_APP_MEDIA_READY diterima
+    }
 }
 
 // ==========================================
@@ -136,82 +210,59 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 // ==========================================
 void VideoPlayerGUI::CreateMenuBar(HWND hwnd) {
     HMENU hMenuBar = CreateMenu();
-    if (!hMenuBar) return;
+    HMENU hFileMenu = CreatePopupMenu();
 
-    HMENU hMenuMedia = CreatePopupMenu();
-    AppendMenu(hMenuMedia, MF_STRING, IDM_OPEN_FILE, L"&Open File...\tCtrl+O");
-    AppendMenu(hMenuMedia, MF_STRING, IDM_OPEN_FOLDER, L"Open &Folder...\tCtrl+F");
-    AppendMenu(hMenuMedia, MF_SEPARATOR, 0, NULL);
-    AppendMenu(hMenuMedia, MF_STRING, IDM_QUIT, L"&Quit\tCtrl+Q");
-    AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuMedia, L"&Media");
-
-    HMENU hMenuPlayback = CreatePopupMenu();
-    AppendMenu(hMenuPlayback, MF_STRING, IDM_PLAY, L"&Play\tCtrl+P");
-    AppendMenu(hMenuPlayback, MF_STRING, IDM_PAUSE, L"Pa&use\tCtrl+Space");
-    AppendMenu(hMenuPlayback, MF_STRING, IDM_STOP, L"&Stop\tCtrl+S");
-    AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuPlayback, L"&Playback");
-
-    HMENU hMenuAudio = CreatePopupMenu();
-    AppendMenu(hMenuAudio, MF_STRING, IDM_INCREASE_VOL, L"&Increase Volume\tCtrl+Up");
-    AppendMenu(hMenuAudio, MF_STRING, IDM_DECREASE_VOL, L"&Decrease Volume\tCtrl+Down");
-    AppendMenu(hMenuAudio, MF_STRING, IDM_MUTE, L"&Mute\tCtrl+M");
-    AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuAudio, L"&Audio");
-
-    HMENU hMenuVideo = CreatePopupMenu();
-    AppendMenu(hMenuVideo, MF_STRING, IDM_FULLSCREEN, L"&Fullscreen\tF11");
-    AppendMenu(hMenuVideo, MF_STRING, IDM_VIDEO_EFFECTS, L"&Video Effects");
-    AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuVideo, L"&Video");
-
-    HMENU hMenuSubtitle = CreatePopupMenu();
-    AppendMenu(hMenuSubtitle, MF_STRING, IDM_SUB_ADD_FILE, L"&Add Subtitle File...");
-    AppendMenu(hMenuSubtitle, MF_STRING, IDM_SUB_TRACK, L"&Sub Track");
-    AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuSubtitle, L"Sub&title");
-
-    HMENU hMenuTools = CreatePopupMenu();
-    AppendMenu(hMenuTools, MF_STRING, IDM_PREFERENCES, L"&Preferences\tCtrl+P");
-    AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuTools, L"&Tools");
-
-    HMENU hMenuView = CreatePopupMenu();
-    AppendMenu(hMenuView, MF_STRING, IDM_PLAYLIST, L"&Playlist\tCtrl+L");
-    AppendMenu(hMenuView, MF_STRING, IDM_ALWAYS_ON_TOP, L"&Always on Top");
-    AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuView, L"V&iew");
-
-    HMENU hMenuHelp = CreatePopupMenu();
-    AppendMenu(hMenuHelp, MF_STRING, IDM_HELP_WEBSITE, L"&Website");
-    AppendMenu(hMenuHelp, MF_SEPARATOR, 0, NULL);
-    AppendMenu(hMenuHelp, MF_STRING, IDM_ABOUT, L"&About...");
-    AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuHelp, L"&Help");
+    AppendMenu(hFileMenu, MF_STRING, IDM_FILE_OPEN, L"Open...");
+    AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hFileMenu, L"File");
 
     SetMenu(hwnd, hMenuBar);
-    DrawMenuBar(hwnd);
 }
-
 // ==========================================
 // CREATE CONTROLS
 // ==========================================
 void VideoPlayerGUI::CreateControls(HWND hwnd) {
-    g_hVideoArea = CreateWindow(L"STATIC", L"",
-        WS_CHILD | WS_VISIBLE | WS_BORDER | SS_SUNKEN,
-        10, 10, 580, 300,
-        hwnd, (HMENU)IDC_VIDEO_AREA, GetModuleHandle(NULL), NULL);
+    g_hMainWnd = hwnd;
+    INITCOMMONCONTROLSEX icex;
+    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
+    icex.dwICC = ICC_BAR_CLASSES;   // dibutuhkan buat trackbar (progress & volume)
+    InitCommonControlsEx(&icex);
 
-    g_hProgress = CreateWindow(TRACKBAR_CLASS, L"",
-        WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-        10, 400, 400, 30,
-        hwnd, (HMENU)IDC_PROGRESS, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hProgress, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
-    SendMessage(g_hProgress, TBM_SETPOS, TRUE, 0);
+    g_hVideoArea = CreateWindowEx(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_BLACKRECT,
+        0, 0, 640, 360, hwnd, nullptr, nullptr, nullptr);
 
-    g_hSkipBack    = CreateWindow(L"BUTTON", L"<<", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 420, 400, 40, 30, hwnd, (HMENU)IDC_SKIP_BACK, GetModuleHandle(NULL), NULL);
-    g_hPlayBtn     = CreateWindow(L"BUTTON", L"▶", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 465, 400, 40, 30, hwnd, (HMENU)IDC_PLAY, GetModuleHandle(NULL), NULL);
-    g_hStopBtn     = CreateWindow(L"BUTTON", L"■", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 510, 400, 40, 30, hwnd, (HMENU)IDC_STOP, GetModuleHandle(NULL), NULL);
-    g_hSkipForward = CreateWindow(L"BUTTON", L">>", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 555, 400, 40, 30, hwnd, (HMENU)IDC_SKIP_FORWARD, GetModuleHandle(NULL), NULL);
+    g_hPlayBtn = CreateWindow(L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE,
+        0, 0, 60, 30, hwnd, (HMENU)IDC_BTN_PLAY, nullptr, nullptr);
 
-    g_hVolume = CreateWindow(TRACKBAR_CLASS, L"", WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS, 45, 435, 150, 30, hwnd, (HMENU)IDC_VOLUME, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hVolume, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
-    SendMessage(g_hVolume, TBM_SETPOS, TRUE, 70);
+    g_hPauseBtn = CreateWindow(L"BUTTON", L"Pause", WS_CHILD | WS_VISIBLE,
+        65, 0, 60, 30, hwnd, (HMENU)IDC_BTN_PAUSE, nullptr, nullptr);
 
-    g_hTimeLabel = CreateWindow(L"STATIC", L"00:00 / 00:00", WS_CHILD | WS_VISIBLE | SS_CENTER, 200, 440, 150, 20, hwnd, (HMENU)IDC_TIME_LABEL, GetModuleHandle(NULL), NULL);
+    g_hStopBtn = CreateWindow(L"BUTTON", L"Stop", WS_CHILD | WS_VISIBLE,
+        130, 0, 60, 30, hwnd, (HMENU)IDC_BTN_STOP, nullptr, nullptr);
+
+    g_hSkipBack = CreateWindow(L"BUTTON", L"<<10s", WS_CHILD | WS_VISIBLE,
+        195, 0, 60, 30, hwnd, (HMENU)IDC_BTN_SKIPBACK, nullptr, nullptr);
+
+    g_hSkipForward = CreateWindow(L"BUTTON", L"10s>>", WS_CHILD | WS_VISIBLE,
+        260, 0, 60, 30, hwnd, (HMENU)IDC_BTN_SKIPFORWARD, nullptr, nullptr);
+
+    // Progress bar pakai trackbar, bukan progress bar biasa, karena perlu bisa di-drag
+    g_hProgress = CreateWindowEx(0, TRACKBAR_CLASS, L"", WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
+        0, 40, 500, 30, hwnd, (HMENU)IDC_PROGRESS, nullptr, nullptr);
+    SendMessage(g_hProgress, TBM_SETRANGE, TRUE, MAKELPARAM(0, 1000)); // 0-1000 = persentase*10
+
+    g_hVolume = CreateWindowEx(0, TRACKBAR_CLASS, L"", WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
+        510, 40, 120, 30, hwnd, (HMENU)IDC_VOLUME, nullptr, nullptr);
+    SendMessage(g_hVolume, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
+    SendMessage(g_hVolume, TBM_SETPOS, TRUE, 100); // default full volume
+
+    g_hTimeLabel = CreateWindow(L"STATIC", L"00:00 / 00:00", WS_CHILD | WS_VISIBLE,
+        0, 75, 200, 20, hwnd, (HMENU)IDC_TIME_LABEL, nullptr, nullptr);
+
+    // Init player, kasih hwnd utama sebagai notify target
+    m_player.Initialize(g_hVideoArea, hwnd);
+
+    // Timer buat update progress bar tiap 250ms
+    SetTimer(hwnd, ID_TIMER_UPDATE, TIMER_INTERVAL_MS, nullptr);
 }
 
 // ==========================================

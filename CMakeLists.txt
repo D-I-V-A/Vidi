@@ -13,14 +13,25 @@ add_compile_definitions(UNICODE _UNICODE)
 set(SOURCES
     src/main.cc
     src/gui/gui.cc
+    src/kernels/mfVideoPlayer.cc
 )
 
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES})
 
-target_include_directories(${PROJECT_NAME} PRIVATE include)
+target_include_directories(${PROJECT_NAME} PRIVATE
+    include
+    src
+    src/gui
+    src/kernels
+)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     user32
     gdi32
     comctl32
+    comdlg32
+    mfplat
+    mf
+    mfplay
+    mfuuid
 )

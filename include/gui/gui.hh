@@ -5,6 +5,7 @@
 #include <commctrl.h>
 
 #include "utils.hh"
+#include "../kernels/mfVideoPlayer.hh"
 
 namespace guiVidi {
 
@@ -16,12 +17,21 @@ private:
     HWND g_hVideoArea;
     HWND g_hToolbar;
     HWND g_hMainWnd;
-
+    kernelPlayerVidi::MediaPlayer m_player; 
+    // intial for kernel wee
+    bool m_isDraggingProgress;
+    bool m_isPlaying;
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void CreateMenuBar(HWND hwnd);
     void LayoutControls(int width, int height);
     void CreateControls(HWND hwnd);
-
+    // method runing kernel on gui
+    void OnCommand(WPARAM wParam, LPARAM lParam);
+    void OnHScroll(WPARAM wParam, LPARAM lParam);
+    void OnTimerTick();
+    void OpenFileDialog();
+    void UpdateTimeLabel(double posSeconds, double durSeconds);
+    void SetPlayPauseUI(bool playing);
 public:
     VideoPlayerGUI() : g_hPlayBtn(nullptr), g_hPauseBtn(nullptr), g_hStopBtn(nullptr),
                        g_hSkipBack(nullptr), g_hSkipForward(nullptr),
