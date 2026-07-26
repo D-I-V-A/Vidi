@@ -56,9 +56,14 @@ Pemisahan ini memungkinkan backend media diganti (misal ke FFmpeg/libVLC) tanpa 
 
 ## 🔧 Requirements
 
-- Windows 7 atau lebih baru
-- Visual Studio 2019/2022 (MSVC) dengan Windows SDK
-- CMake ≥ 3.15
+| Kebutuhan | Minimum | Direkomendasikan |
+|---|---|---|
+| **OS** | Windows 7 SP1 | Windows 10/11 |
+| **Compiler** | Visual Studio 2019 (MSVC) + Windows SDK | Visual Studio 2022 (MSVC) |
+| **CMake** | ≥ 3.15 | ≥ 3.20 |
+| **RAM** | 2 GB | 4 GB atau lebih |
+| **Codec** | Bawaan Windows (H.264/MP4) | + HEVC Video Extensions / K-Lite Codec Pack |
+| **GPU** | — | Mendukung hardware decoding (DXVA) untuk playback 1080p/4K lebih ringan |
 
 ---
 
