@@ -135,6 +135,17 @@ double MediaPlayer::GetPosition() {
     return result;
 }
 
+void MediaPlayer::GetNativeVideoSize(int& width,int& height){
+    width = 0;
+    height = 0;
+    if (!m_pPlayer) return;
+
+    SIZE szVideo, szAR;
+    if (SUCCEEDED(m_pPlayer->GetNativeVideoSize(&szVideo, &szAR))) {
+        width = szVideo.cx;
+        height = szVideo.cy;
+    }
+}
 void MediaPlayer::UpdateVideoSize() { if (m_pPlayer) m_pPlayer->UpdateVideo(); }
 
 void MediaPlayer::Shutdown() {

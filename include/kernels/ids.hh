@@ -37,7 +37,7 @@
 
 // --- Timer IDs ---
 #define ID_TIMER_UPDATE     3001
-#define TIMER_INTERVAL_MS   250
+#define TIMER_INTERVAL_MS   33  // ~30fps
 
 // --- Custom window messages ---
 #define WM_APP_MEDIA_READY      (WM_APP + 1)
@@ -46,8 +46,7 @@
 
 
 
-// create static
-static HACCEL CreatePlayerAccelTable() {
+inline HACCEL CreatePlayerAccelTable() {
     ACCEL accels[] = {
         { FVIRTKEY,                  VK_SPACE,  IDM_PLAYBACK_PLAY   }, // Space -> Play/Pause toggle (di-handle manual di handler)
         { FVIRTKEY,                  'S',       IDM_PLAYBACK_STOP   },

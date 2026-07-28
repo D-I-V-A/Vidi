@@ -4,7 +4,6 @@
 #include <windows.h>
 #include <commctrl.h>
 
-#include "utils.hh"
 #include "../kernels/mfVideoPlayer.hh"
 
 namespace guiVidi {
@@ -31,7 +30,8 @@ private:
     // --- TAMBAHIN INI ---
     float m_lastVolume;   // simpan volume sebelum di-mute
     bool  m_isMuted;
-
+    double m_cachedDuration; // cache durasi video, diupdate saat media ready
+    WINDOWPLACEMENT m_prevPlacement;
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void CreateMenuBar(HWND hwnd);
     void LayoutControls(int width, int height);
@@ -56,15 +56,18 @@ private:
 
 public:
     VideoPlayerGUI() : g_hPlayBtn(nullptr), g_hPauseBtn(nullptr), g_hStopBtn(nullptr),
-                   g_hSkipBack(nullptr), g_hSkipForward(nullptr),
-                   g_hProgress(nullptr), g_hVolume(nullptr), g_hTimeLabel(nullptr),
-                   g_hVideoArea(nullptr), g_hToolbar(nullptr), g_hMainWnd(nullptr),
-                   m_hAccel(nullptr),
-                   m_isDraggingProgress(false), m_isPlaying(false),
-                   m_lastSeekTick(0),
-                   m_hasPendingSeek(false), m_pendingSeekTarget(0.0),
-                   m_pendingSeekStartTick(0), m_progressRangeMax(1000),
-                   m_lastVolume(1.0f), m_isMuted(false) {}
+                g_hSkipBack(nullptr), g_hSkipForward(nullptr),
+                g_hProgress(nullptr), g_hVolume(nullptr), g_hTimeLabel(nullptr),
+                g_hVideoArea(nullptr), g_hToolbar(nullptr), g_hMainWnd(nullptr),
+                m_hAccel(nullptr),
+                m_isDraggingProgress(false), m_isPlaying(false),
+                m_lastSeekTick(0),
+                m_hasPendingSeek(false), m_pendingSeekTarget(0.0),
+                m_pendingSeekStartTick(0), m_progressRangeMax(1000),
+                m_lastVolume(1.0f), m_isMuted(false),
+                m_cachedDuration(0.0),
+                m_prevPlacement{ sizeof(WINDOWPLACEMENT) }   // <-- tambahin ini
+                {}
 
     bool Initialize(HINSTANCE hInstance, int nCmdShow);
     int Run();

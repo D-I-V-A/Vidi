@@ -36,7 +36,7 @@ namespace kernelPlayerVidi{
         // dipanggil dari callback saat state berubah / video punya ukuran
         void UpdateVideoSize();
         HWND GetNotifyWnd() const {return m_hNotifyWnd;}
-
+        void GetNativeVideoSize(int& width,int&height);
     };
 }
 

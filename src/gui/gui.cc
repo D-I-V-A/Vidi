@@ -1,5 +1,4 @@
 #include "../../include/gui/gui.hh"
-#include "../../include/gui/utils.hh"
 #include "../../include/kernels/ids.hh"
 #include <string>
 #include <cmath>
@@ -133,10 +132,9 @@ void VideoPlayerGUI::SeekFromTrackbarClick(int mouseX) {
     int newPos = static_cast<int>(ratio * m_progressRangeMax);
     SendMessage(g_hProgress, TBM_SETPOS, TRUE, newPos);
 
-    double dur = m_player.GetDuration();
-    double targetSec = ratio * dur;
+    double targetSec = ratio * m_cachedDuration;
 
-    UpdateTimeLabel(targetSec, dur);
+    UpdateTimeLabel(targetSec, m_cachedDuration);
     m_player.Seek(targetSec);
 
     m_hasPendingSeek = true;
@@ -148,8 +146,8 @@ void VideoPlayerGUI::SeekFromTrackbarClick(int mouseX) {
 // MEDIA READY — set range trackbar sesuai durasi asli video
 // ==========================================
 void VideoPlayerGUI::OnMediaReady() {
-    double dur = m_player.GetDuration();
-
+    m_cachedDuration = m_player.GetDuration();
+    double dur = m_cachedDuration;
     // Presisi 0.1 detik per step, proporsional ke durasi asli
     int range = static_cast<int>(dur * 10.0);
     if (range < 100) range = 100;           // minimum, jaga video super pendek
@@ -186,6 +184,7 @@ void VideoPlayerGUI::OnCommand(WPARAM wParam, LPARAM lParam) {
             m_player.Stop();
             SetPlayPauseUI(false);
             SendMessage(g_hProgress, TBM_SETPOS, TRUE, 0);
+            m_cachedDuration = 0.0;
             break;
 
         case IDC_BTN_SKIPBACK:
@@ -197,8 +196,7 @@ void VideoPlayerGUI::OnCommand(WPARAM wParam, LPARAM lParam) {
         case IDC_BTN_SKIPFORWARD:
         case IDM_PLAYBACK_SKIPFWD: {
             double pos = m_player.GetPosition();
-            double dur = m_player.GetDuration();
-            m_player.Seek((pos + 10.0 < dur) ? pos + 10.0 : dur);
+            m_player.Seek((pos + 10.0 < m_cachedDuration) ? pos + 10.0 : m_cachedDuration);
             break;
         }
 
@@ -255,12 +253,11 @@ void VideoPlayerGUI::ToggleMute() {
 }
 
 void VideoPlayerGUI::ToggleFullscreen() {
-    static WINDOWPLACEMENT prevPlacement = { sizeof(prevPlacement) };
     DWORD style = GetWindowLong(g_hMainWnd, GWL_STYLE);
 
     if (style & WS_OVERLAPPEDWINDOW) {
         MONITORINFO mi = { sizeof(mi) };
-        if (GetWindowPlacement(g_hMainWnd, &prevPlacement) &&
+        if (GetWindowPlacement(g_hMainWnd, &m_prevPlacement) &&
             GetMonitorInfo(MonitorFromWindow(g_hMainWnd, MONITOR_DEFAULTTOPRIMARY), &mi)) {
             SetWindowLong(g_hMainWnd, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
             SetWindowPos(g_hMainWnd, HWND_TOP,
@@ -271,12 +268,11 @@ void VideoPlayerGUI::ToggleFullscreen() {
         }
     } else {
         SetWindowLong(g_hMainWnd, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
-        SetWindowPlacement(g_hMainWnd, &prevPlacement);
+        SetWindowPlacement(g_hMainWnd, &m_prevPlacement);
         SetWindowPos(g_hMainWnd, nullptr, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
     }
 }
-
 // ==========================================
 // HSCROLL — drag & klik trackbar
 // ==========================================
@@ -289,10 +285,9 @@ void VideoPlayerGUI::OnHScroll(WPARAM wParam, LPARAM lParam) {
             m_isDraggingProgress = true;
 
             int pos = (int)SendMessage(g_hProgress, TBM_GETPOS, 0, 0);
-            double dur = m_player.GetDuration();
-            double targetSec = (static_cast<double>(pos) / m_progressRangeMax) * dur;
+            double targetSec = (static_cast<double>(pos) / m_progressRangeMax) * m_cachedDuration;
 
-            UpdateTimeLabel(targetSec, dur);
+            UpdateTimeLabel(targetSec, m_cachedDuration);
 
             DWORD now = GetTickCount();
             if (now - m_lastSeekTick > 120) {
@@ -303,8 +298,7 @@ void VideoPlayerGUI::OnHScroll(WPARAM wParam, LPARAM lParam) {
 
         if (code == TB_ENDTRACK) {
             int pos = (int)SendMessage(g_hProgress, TBM_GETPOS, 0, 0);
-            double dur = m_player.GetDuration();
-            double targetSec = (static_cast<double>(pos) / m_progressRangeMax) * dur;
+            double targetSec = (static_cast<double>(pos) / m_progressRangeMax) * m_cachedDuration;
             m_player.Seek(targetSec);
             m_isDraggingProgress = false;
 
@@ -325,7 +319,7 @@ void VideoPlayerGUI::OnHScroll(WPARAM wParam, LPARAM lParam) {
 void VideoPlayerGUI::OnTimerTick() {
     if (m_isDraggingProgress) return;
 
-    double dur = m_player.GetDuration();
+    double dur = m_cachedDuration;
 
     if (m_hasPendingSeek) {
         double actualPos = m_player.GetPosition();
