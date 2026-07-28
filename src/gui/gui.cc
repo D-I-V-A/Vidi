@@ -430,23 +430,42 @@ void VideoPlayerGUI::CreateControls(HWND hwnd) {
     icex.dwICC = ICC_BAR_CLASSES;
     InitCommonControlsEx(&icex);
 
+    // Build icon paths relative to executable
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring exeDir = exePath;
+    exeDir = exeDir.substr(0, exeDir.find_last_of(L'\\') + 1);
+    std::wstring assetsDir = exeDir + L"assets\\";
+
+    // Load icons
+    m_hIconPlay      = (HICON)LoadImageW(nullptr, (assetsDir + L"play-button-arrowhead.ico").c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
+    m_hIconPause     = (HICON)LoadImageW(nullptr, (assetsDir + L"pause.ico").c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
+    m_hIconStop      = (HICON)LoadImageW(nullptr, (assetsDir + L"stop-button.ico").c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
+    m_hIconSkipBack  = (HICON)LoadImageW(nullptr, (assetsDir + L"left-arrow.ico").c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
+    m_hIconSkipForward = (HICON)LoadImageW(nullptr, (assetsDir + L"fast-forward.ico").c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
+
     g_hVideoArea = CreateWindowEx(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_BLACKRECT,
         0, 0, 640, 360, hwnd, nullptr, nullptr, nullptr);
 
-    g_hPlayBtn = CreateWindow(L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE,
-        0, 0, 60, 30, hwnd, (HMENU)IDC_BTN_PLAY, nullptr, nullptr);
+    g_hPlayBtn = CreateWindow(L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_ICON,
+        0, 0, 40, 30, hwnd, (HMENU)IDC_BTN_PLAY, nullptr, nullptr);
+    if (m_hIconPlay) SendMessage(g_hPlayBtn, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconPlay);
 
-    g_hPauseBtn = CreateWindow(L"BUTTON", L"Pause", WS_CHILD | WS_VISIBLE,
-        65, 0, 60, 30, hwnd, (HMENU)IDC_BTN_PAUSE, nullptr, nullptr);
+    g_hPauseBtn = CreateWindow(L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_ICON,
+        45, 0, 40, 30, hwnd, (HMENU)IDC_BTN_PAUSE, nullptr, nullptr);
+    if (m_hIconPause) SendMessage(g_hPauseBtn, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconPause);
 
-    g_hStopBtn = CreateWindow(L"BUTTON", L"Stop", WS_CHILD | WS_VISIBLE,
-        130, 0, 60, 30, hwnd, (HMENU)IDC_BTN_STOP, nullptr, nullptr);
+    g_hStopBtn = CreateWindow(L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_ICON,
+        90, 0, 40, 30, hwnd, (HMENU)IDC_BTN_STOP, nullptr, nullptr);
+    if (m_hIconStop) SendMessage(g_hStopBtn, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconStop);
 
-    g_hSkipBack = CreateWindow(L"BUTTON", L"<<10s", WS_CHILD | WS_VISIBLE,
-        195, 0, 60, 30, hwnd, (HMENU)IDC_BTN_SKIPBACK, nullptr, nullptr);
+    g_hSkipBack = CreateWindow(L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_ICON,
+        135, 0, 40, 30, hwnd, (HMENU)IDC_BTN_SKIPBACK, nullptr, nullptr);
+    if (m_hIconSkipBack) SendMessage(g_hSkipBack, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconSkipBack);
 
-    g_hSkipForward = CreateWindow(L"BUTTON", L"10s>>", WS_CHILD | WS_VISIBLE,
-        260, 0, 60, 30, hwnd, (HMENU)IDC_BTN_SKIPFORWARD, nullptr, nullptr);
+    g_hSkipForward = CreateWindow(L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_ICON,
+        180, 0, 40, 30, hwnd, (HMENU)IDC_BTN_SKIPFORWARD, nullptr, nullptr);
+    if (m_hIconSkipForward) SendMessage(g_hSkipForward, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconSkipForward);
 
     // Progress bar — range default sementara (0-1000), akan di-replace OnMediaReady()
     g_hProgress = CreateWindowEx(0, TRACKBAR_CLASS, L"", WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
