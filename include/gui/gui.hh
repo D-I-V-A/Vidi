@@ -4,7 +4,7 @@
 #include <windows.h>
 #include <commctrl.h>
 
-#include "../kernels/mfVideoPlayer.hh"
+#include "../kernels/directShowPlayer.hh"
 
 namespace guiVidi {
 
@@ -17,7 +17,7 @@ private:
     HWND g_hToolbar;
     HWND g_hMainWnd;
     HACCEL m_hAccel;
-    kernelPlayerVidi::MediaPlayer m_player;
+    kernelPlayerVidi::DirectShowPlayer m_player;
 
     bool m_isDraggingProgress;
     bool m_isPlaying;

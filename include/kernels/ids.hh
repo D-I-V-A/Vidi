@@ -43,7 +43,7 @@
 #define WM_APP_MEDIA_READY      (WM_APP + 1)
 #define WM_APP_PLAYBACK_ENDED   (WM_APP + 2)
 #define WM_APP_MEDIA_ERROR      (WM_APP + 3)
-
+#define WM_APP_GRAPH_EVENT (WM_APP + 10) 
 
 
 inline HACCEL CreatePlayerAccelTable() {

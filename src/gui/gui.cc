@@ -19,7 +19,7 @@ void VideoPlayerGUI::LayoutControls(int width, int height) {
 
     if (g_hVideoArea)
         SetWindowPos(g_hVideoArea, NULL, MARGIN, MARGIN, width - (MARGIN * 2), videoHeight, SWP_NOZORDER);
-
+        m_player.UpdateVideoSize();
     int videoBottomY = MARGIN + videoHeight;
     int progressY = videoBottomY + GAP;
 
@@ -92,10 +92,16 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         case WM_APP_PLAYBACK_ENDED:
             if (self) self->SetPlayPauseUI(false);
             return 0;
-
-        case WM_APP_MEDIA_ERROR:
-            MessageBox(hwnd, L"Gagal memutar video.", L"Error", MB_ICONERROR);
+        case WM_APP_GRAPH_EVENT:
+            if(self) self->m_player.HandleGraphEvent();
             return 0;
+        case WM_APP_MEDIA_ERROR:
+            {
+            HRESULT hr = (HRESULT)wParam;
+            wchar_t buf[256];
+            swprintf_s(buf, L"Gagal memutar video.\n\nHRESULT: 0x%08X", (unsigned int)hr);
+            MessageBox(hwnd, buf, L"Error", MB_ICONERROR);
+            return 0;}
 
         case WM_DESTROY:
             KillTimer(hwnd, ID_TIMER_UPDATE);
@@ -124,7 +130,8 @@ void VideoPlayerGUI::SeekFromTrackbarClick(int mouseX) {
     RECT rc;
     GetClientRect(g_hProgress, &rc);
     if (rc.right <= 0) return;
-
+    // untuk mencegah seek ke 0 apabila durasinya belum diketahui
+    if(m_cachedDuration <= 0.0) return ; 
     double ratio = static_cast<double>(mouseX) / static_cast<double>(rc.right);
     if (ratio < 0.0) ratio = 0.0;
     if (ratio > 1.0) ratio = 1.0;
@@ -283,7 +290,8 @@ void VideoPlayerGUI::OnHScroll(WPARAM wParam, LPARAM lParam) {
     if (hCtrl == g_hProgress) {
         if (code == TB_THUMBTRACK || code == TB_THUMBPOSITION) {
             m_isDraggingProgress = true;
-
+            // mencegah seek nya kembali ke 0 bila durasi videonya belum diketahui hasilnya
+            if(m_cachedDuration <= 0.0) return ;
             int pos = (int)SendMessage(g_hProgress, TBM_GETPOS, 0, 0);
             double targetSec = (static_cast<double>(pos) / m_progressRangeMax) * m_cachedDuration;
 
@@ -297,6 +305,8 @@ void VideoPlayerGUI::OnHScroll(WPARAM wParam, LPARAM lParam) {
         }
 
         if (code == TB_ENDTRACK) {
+            m_isDraggingProgress = false;
+            if(m_cachedDuration <= 0.0) return;
             int pos = (int)SendMessage(g_hProgress, TBM_GETPOS, 0, 0);
             double targetSec = (static_cast<double>(pos) / m_progressRangeMax) * m_cachedDuration;
             m_player.Seek(targetSec);
@@ -320,7 +330,21 @@ void VideoPlayerGUI::OnTimerTick() {
     if (m_isDraggingProgress) return;
 
     double dur = m_cachedDuration;
-
+    // menambahkan logic mkv dengan durasi nya cokk
+    if(dur <=0.0){
+        double fresh = m_player.GetDuration();
+        if(fresh > 0.0){
+            m_cachedDuration = fresh;
+            dur = fresh;
+            int range = static_cast<int>(dur * 10.0);
+            if (range < 100) range = 100;
+            if (range > 1000000) range = 1000000;
+            m_progressRangeMax = range;
+            SendMessage(g_hProgress, TBM_SETRANGE, TRUE, MAKELPARAM(0, m_progressRangeMax));
+        }else{
+            return ;
+        }
+    }
     if (m_hasPendingSeek) {
         double actualPos = m_player.GetPosition();
         DWORD elapsed = GetTickCount() - m_pendingSeekStartTick;
@@ -339,10 +363,8 @@ void VideoPlayerGUI::OnTimerTick() {
     }
 
     double pos = m_player.GetPosition();
-    if (dur > 0.0) {
-        int sliderPos = static_cast<int>((pos / dur) * m_progressRangeMax);
-        SendMessage(g_hProgress, TBM_SETPOS, TRUE, sliderPos);
-    }
+    int sliderPos = static_cast<int>((pos/dur)* m_progressRangeMax);
+    SendMessage(g_hProgress, TBM_SETPOS, TRUE, sliderPos);
     UpdateTimeLabel(pos, dur);
 }
 
@@ -367,7 +389,7 @@ void VideoPlayerGUI::OpenFileDialog() {
     OPENFILENAME ofn = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = g_hMainWnd;
-    ofn.lpstrFilter = L"Video Files\0*.mp4;*.avi;*.wmv;*.mkv\0All Files\0*.*\0";
+    ofn.lpstrFilter = L"Video Files\0*.mp4;*.mkv;*.avi;*.wmv;*.webm;*.mov;*.m4v;*.ts;*.flv;*.mpg;*.mpeg;*.vob;*.ogv;*.3gp\0";
     ofn.lpstrFile = filePath;
     ofn.nMaxFile = MAX_PATH;
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
