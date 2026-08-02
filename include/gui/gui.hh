@@ -12,6 +12,7 @@ class VideoPlayerGUI {
 private:
     HWND g_hPlayBtn, g_hPauseBtn, g_hStopBtn;
     HWND g_hSkipBack, g_hSkipForward;
+    HICON m_hIconPlay, m_hIconPause, m_hIconStop, m_hIconSkipBack, m_hIconSkipForward;
     HWND g_hProgress, g_hVolume, g_hTimeLabel;
     HWND g_hVideoArea;
     HWND g_hToolbar;
@@ -57,6 +58,8 @@ private:
 public:
     VideoPlayerGUI() : g_hPlayBtn(nullptr), g_hPauseBtn(nullptr), g_hStopBtn(nullptr),
                 g_hSkipBack(nullptr), g_hSkipForward(nullptr),
+                m_hIconPlay(nullptr), m_hIconPause(nullptr), m_hIconStop(nullptr),
+                m_hIconSkipBack(nullptr), m_hIconSkipForward(nullptr),
                 g_hProgress(nullptr), g_hVolume(nullptr), g_hTimeLabel(nullptr),
                 g_hVideoArea(nullptr), g_hToolbar(nullptr), g_hMainWnd(nullptr),
                 m_hAccel(nullptr),
