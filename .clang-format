@@ -1,0 +1,41 @@
+# .clang-format
+BasedOnStyle: Microsoft
+Language: Cpp
+Standard: c++17
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+
+# Brace style
+BreakBeforeBraces: Attach   # gaya kamu sekarang: "void Foo() {" bukan brace di baris baru
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: false
+AllowShortBlocksOnASingleLine: false
+
+# Pointer/reference alignment — kode kamu pakai gaya "HWND* ptr" style Win32 (Left)
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Spacing
+SpaceBeforeParens: ControlStatements
+SpacesInParentheses: false
+SpaceAfterCStyleCast: false
+
+# Alignment biar rapi untuk deklarasi HWND berderet & inisialisasi konstruktor
+AlignConsecutiveDeclarations: false
+AlignConsecutiveAssignments: false
+AlignTrailingComments: true
+
+# Include order — jaga windows.h tetap di atas (penting! urutan include Windows.h sensitif)
+SortIncludes: Never       # FIX: matikan auto-sort, karena <windows.h> harus di atas <commctrl.h>
+
+# Namespace
+NamespaceIndentation: None
+FixNamespaceComments: true
+
+# Constructor initializer list (punya kamu di VideoPlayerGUI() : ...)
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+AllowAllConstructorInitializersOnNextLine: true
