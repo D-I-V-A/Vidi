@@ -9,48 +9,56 @@ namespace guiVidi {
 // LAYOUT CONTROLS
 // ==========================================
 void VideoPlayerGUI::LayoutControls(int width, int height) {
-    const int MARGIN       = 10;
-    const int PROGRESS_H   = 25;
-    const int BUTTON_ROW_H = 30;
-    const int GAP          = 8;
+    const int MARGIN = 0;           // VLC pakai edge-to-edge
+    const int BOTTOM_BAR_H = 60;    // Tinggi control bar ala VLC
+    const int PROGRESS_H = 18;      // Hit-area trackbar (bar visual tipis digambar manual)
+    const int PROGRESS_PAD_Y = 2;   // Padding vertikal progress
+    const int BTN_SIZE = 36;
+    const int GAP = 6;
 
-    int bottomBarHeight = PROGRESS_H + GAP + BUTTON_ROW_H + MARGIN;
-    int videoHeight = height - bottomBarHeight - MARGIN;
+    int videoHeight = height - BOTTOM_BAR_H;
+    if (videoHeight < 100) videoHeight = 100;
 
-    if (g_hVideoArea)
-        SetWindowPos(g_hVideoArea, NULL, MARGIN, MARGIN, width - (MARGIN * 2), videoHeight, SWP_NOZORDER);
-        m_player.UpdateVideoSize();
-    int videoBottomY = MARGIN + videoHeight;
-    int progressY = videoBottomY + GAP;
+    // 1. Video Area (full width, minus margin opsional)
+    if (g_hVideoArea) {
+        SetWindowPos(g_hVideoArea, NULL, MARGIN, MARGIN, 
+                     width - (MARGIN*2), videoHeight, SWP_NOZORDER | SWP_SHOWWINDOW);
+    }
+    m_player.UpdateVideoSize();
 
-    if (g_hProgress)
-        SetWindowPos(g_hProgress, NULL, MARGIN, progressY, width - (MARGIN * 2), PROGRESS_H, SWP_NOZORDER);
+    int barY = videoHeight;
+    int progressY = barY + PROGRESS_PAD_Y;
+    int btnRowY = progressY + PROGRESS_H + GAP;
 
-    int buttonY = progressY + PROGRESS_H + GAP;
+    // 2. Progress Bar (Full Width, tipis di atas tombol)
+    if (g_hProgress) {
+        SetWindowPos(g_hProgress, NULL, 8, progressY, 
+                     width - 16, PROGRESS_H, SWP_NOZORDER | SWP_SHOWWINDOW);
+    }
 
-    if (g_hSkipBack)
-        SetWindowPos(g_hSkipBack, NULL, MARGIN, buttonY, 40, BUTTON_ROW_H, SWP_NOZORDER);
-    if (g_hPlayBtn)
-        SetWindowPos(g_hPlayBtn, NULL, MARGIN + 45, buttonY, 40, BUTTON_ROW_H, SWP_NOZORDER);
-    if (g_hPauseBtn)
-        SetWindowPos(g_hPauseBtn, NULL, MARGIN + 90, buttonY, 40, BUTTON_ROW_H, SWP_NOZORDER);
-    if (g_hStopBtn)
-        SetWindowPos(g_hStopBtn, NULL, MARGIN + 135, buttonY, 40, BUTTON_ROW_H, SWP_NOZORDER);
-    if (g_hSkipForward)
-        SetWindowPos(g_hSkipForward, NULL, MARGIN + 180, buttonY, 40, BUTTON_ROW_H, SWP_NOZORDER);
+    // 3. Tombol Playback (Rata Kiri)
+    int btnX = 8;
+    if (g_hSkipBack)     SetWindowPos(g_hSkipBack,     NULL, btnX, btnRowY, BTN_SIZE, BTN_SIZE, SWP_NOZORDER | SWP_SHOWWINDOW);
+    btnX += BTN_SIZE + 4;
+    if (g_hPlayBtn)      SetWindowPos(g_hPlayBtn,      NULL, btnX, btnRowY, BTN_SIZE, BTN_SIZE, SWP_NOZORDER | SWP_SHOWWINDOW);
+    btnX += BTN_SIZE + 4;
+    if (g_hPauseBtn)     SetWindowPos(g_hPauseBtn,     NULL, btnX, btnRowY, BTN_SIZE, BTN_SIZE, SWP_NOZORDER | SWP_SHOWWINDOW);
+    btnX += BTN_SIZE + 4;
+    if (g_hStopBtn)      SetWindowPos(g_hStopBtn,      NULL, btnX, btnRowY, BTN_SIZE, BTN_SIZE, SWP_NOZORDER | SWP_SHOWWINDOW);
+    btnX += BTN_SIZE + 4;
+    if (g_hSkipForward)  SetWindowPos(g_hSkipForward,  NULL, btnX, btnRowY, BTN_SIZE, BTN_SIZE, SWP_NOZORDER | SWP_SHOWWINDOW);
 
-    if (g_hTimeLabel)
-        SetWindowPos(g_hTimeLabel, NULL, width - MARGIN - 150, buttonY, 100, BUTTON_ROW_H, SWP_NOZORDER);
-    if (g_hVolume)
-        SetWindowPos(g_hVolume, NULL, width - MARGIN - 260, buttonY, 100, BUTTON_ROW_H, SWP_NOZORDER);
+    // 4. Volume & Time (Rata Kanan)
+    int rightX = width - 180;
+    if (g_hVolume)       SetWindowPos(g_hVolume,       NULL, rightX, btnRowY + 6, 80, 24, SWP_NOZORDER | SWP_SHOWWINDOW);
+    if (g_hTimeLabel)    SetWindowPos(g_hTimeLabel,    NULL, rightX + 90, btnRowY + 6, 80, 24, SWP_NOZORDER | SWP_SHOWWINDOW);
 }
 
 // ==========================================
 // WINDOW PROC
 // ==========================================
 LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    VideoPlayerGUI* self = reinterpret_cast<VideoPlayerGUI*>(
-        GetWindowLongPtr(hwnd, GWLP_USERDATA));
+    VideoPlayerGUI* self = reinterpret_cast<VideoPlayerGUI*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
 
     switch (uMsg) {
         case WM_CREATE:
@@ -58,52 +66,87 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             CREATESTRUCT* pCreate = reinterpret_cast<CREATESTRUCT*>(lParam);
             VideoPlayerGUI* pThis = reinterpret_cast<VideoPlayerGUI*>(pCreate->lpCreateParams);
             SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)pThis);
-
+            
+            SetWindowTheme(hwnd, L"Explorer", nullptr);
             pThis->CreateMenuBar(hwnd);
             pThis->CreateControls(hwnd);
+            
+            // [PENTING] Panggil LayoutControls setelah create
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            pThis->LayoutControls(rc.right, rc.bottom);
+            
             return 0;
+        }
+
+        case WM_ERASEBKGND:
+        {
+            HDC hdc = (HDC)wParam;
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            HBRUSH hBrush = CreateSolidBrush(self->COLOR_MODERN_BG);
+            FillRect(hdc, &rc, hBrush);
+            DeleteObject(hBrush);
+            return 1;
+        }
+
+        case WM_CTLCOLORSTATIC:
+        {
+            HDC hdc = (HDC)wParam;
+
+            // Tooltip waktu seekbar: bg gelap + teks putih
+            if ((HWND)lParam == self->m_hTimeTip) {
+                SetBkColor(hdc, self->COLOR_TIP_BG);
+                SetTextColor(hdc, RGB(255, 255, 255));
+                static HBRUSH hTipBrush = CreateSolidBrush(self->COLOR_TIP_BG);
+                return (INT_PTR)hTipBrush;
+            }
+
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, self->COLOR_MODERN_TEXT);
+            static HBRUSH hBrush = CreateSolidBrush(self->COLOR_MODERN_BG);
+            return (INT_PTR)hBrush;
+        }
+
+        // [VLC-STYLE] Custom draw seekbar: track abu tipis + fill oranye + thumb kotak putih
+        case WM_NOTIFY:
+        {
+            LPNMHDR pnmh = (LPNMHDR)lParam;
+            if (self && pnmh->hwndFrom == self->g_hProgress && pnmh->code == NM_CUSTOMDRAW) {
+                LPNMCUSTOMDRAW pcd = (LPNMCUSTOMDRAW)lParam;
+
+                if (pcd->dwDrawStage == CDDS_PREPAINT)
+                    return CDRF_NOTIFYITEMDRAW;
+
+                if (pcd->dwDrawStage == CDDS_ITEMPREPAINT) {
+                    if (pcd->dwItemSpec == TBCD_CHANNEL) {
+                        self->DrawVlcSeekbar(pcd->hdc);
+                        return CDRF_SKIPDEFAULT;
+                    }
+                    if (pcd->dwItemSpec == TBCD_THUMB)
+                        return CDRF_SKIPDEFAULT;   // sembunyikan thumb sistem
+                }
+                return CDRF_DODEFAULT;
+            }
+            break;
         }
 
         case WM_SIZE:
-        {
             if (self) self->LayoutControls(LOWORD(lParam), HIWORD(lParam));
             return 0;
-        }
-
         case WM_COMMAND:
-            if (self) self->OnCommand(wParam, lParam);
+            if(self) self->OnCommand(wParam,lParam);
             return 0;
-
         case WM_HSCROLL:
-            if (self) self->OnHScroll(wParam, lParam);
+            if(self) self->OnHScroll(wParam,lParam);
             return 0;
-
         case WM_TIMER:
-            if (wParam == ID_TIMER_UPDATE && self) self->OnTimerTick();
+            if(wParam == ID_TIMER_UPDATE && self) self->OnTimerTick();
             return 0;
-
-        case WM_APP_MEDIA_READY:
-            if (self) {
-                self->OnMediaReady();
-                self->SetPlayPauseUI(true);
-            }
-            return 0;
-
-        case WM_APP_PLAYBACK_ENDED:
-            if (self) self->SetPlayPauseUI(false);
-            return 0;
-        case WM_APP_GRAPH_EVENT:
-            if(self) self->m_player.HandleGraphEvent();
-            return 0;
-        case WM_APP_MEDIA_ERROR:
-            {
-            HRESULT hr = (HRESULT)wParam;
-            wchar_t buf[256];
-            swprintf_s(buf, L"Gagal memutar video.\n\nHRESULT: 0x%08X", (unsigned int)hr);
-            MessageBox(hwnd, buf, L"Error", MB_ICONERROR);
-            return 0;}
-
         case WM_DESTROY:
+            if (self->m_hModernFont) DeleteObject(self->m_hModernFont);
+            if (self->m_hTimeFont) DeleteObject(self->m_hTimeFont);
+            if (self->m_hTipFont) DeleteObject(self->m_hTipFont);
             KillTimer(hwnd, ID_TIMER_UPDATE);
             PostQuitMessage(0);
             return 0;
@@ -118,35 +161,194 @@ LRESULT CALLBACK VideoPlayerGUI::ProgressSubclassProc(HWND hwnd, UINT uMsg, WPAR
                                                        UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     VideoPlayerGUI* self = reinterpret_cast<VideoPlayerGUI*>(dwRefData);
 
-    if (uMsg == WM_LBUTTONDOWN && self) {
-        int mouseX = LOWORD(lParam);
-        self->SeekFromTrackbarClick(mouseX);
+    switch (uMsg) {
+        case WM_ERASEBKGND:
+            return 1;  // digambar sendiri di DrawVlcSeekbar (anti-flicker)
+
+        case WM_LBUTTONDOWN:
+            if (self) {
+                SetCapture(hwnd);
+                self->SeekFromTrackbarClick((short)LOWORD(lParam));
+            }
+            return 0;
+
+        case WM_MOUSEMOVE: {
+            if (!self) break;
+            int x = (short)LOWORD(lParam);
+            if (GetCapture() == hwnd && self->m_isDraggingProgress) {
+                self->DragSeekTo(x);
+            } else {
+                TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+                TrackMouseEvent(&tme);
+                self->m_seekHot = true;
+                self->m_hotX = x;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+
+        case WM_MOUSELEAVE:
+            if (self) {
+                self->m_seekHot = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+
+        case WM_LBUTTONUP:
+            if (self && GetCapture() == hwnd) {
+                ReleaseCapture();
+                self->EndSeekDrag();
+            }
+            return 0;
+
+        case WM_CAPTURECHANGED:
+            if (self) self->EndSeekDrag();
+            return 0;
     }
 
     return DefSubclassProc(hwnd, uMsg, wParam, lParam);
 }
 
+// ==========================================
+// VLC-STYLE SEEKBAR — track abu tipis, fill oranye, thumb kotak putih
+// ==========================================
+void VideoPlayerGUI::DrawVlcSeekbar(HDC hdc) {
+    RECT rc;
+    GetClientRect(g_hProgress, &rc);
+
+    // BG penuh kontrol (pengganti erasebkgnd, menghapus jejak frame lama)
+    HBRUSH hBg = CreateSolidBrush(COLOR_MODERN_BG);
+    FillRect(hdc, &rc, hBg);
+    DeleteObject(hBg);
+
+    int pos = (int)SendMessage(g_hProgress, TBM_GETPOS, 0, 0);
+    int max = (int)SendMessage(g_hProgress, TBM_GETRANGEMAX, 0, 0);
+
+    const int BAR_H = 5;                    // bar visual tipis
+    const int THUMB_SIZE = (m_seekHot || m_isDraggingProgress) ? 14 : 12;
+    int cy = (rc.top + rc.bottom) / 2;
+    RECT track = { rc.left + 2, cy - BAR_H / 2, rc.right - 3, cy + BAR_H / 2 };
+    int width = track.right - track.left;
+
+    HPEN hNullPen = CreatePen(PS_NULL, 0, 0);
+    HGDIOBJ hOldPen = SelectObject(hdc, hNullPen);
+
+    // Track abu muda rounded
+    HBRUSH hTrack = CreateSolidBrush(COLOR_SEEK_TRACK);
+    HGDIOBJ hOldBr = SelectObject(hdc, hTrack);
+    RoundRect(hdc, track.left, track.top, track.right, track.bottom, BAR_H, BAR_H);
+
+    // Fill oranye — inset 1px agar sedikit lebih tipis dari track
+    bool hot = m_seekHot || m_isDraggingProgress;
+    int fx = track.left + (max > 0 ? (int)(((double)pos / max) * width) : 0);
+    if (fx > track.left + BAR_H) {
+        HBRUSH hFill = CreateSolidBrush(hot ? COLOR_SEEK_FILL_HOT : COLOR_SEEK_FILL);
+        SelectObject(hdc, hFill);
+        RoundRect(hdc, track.left, track.top + 1, fx, track.bottom - 1, BAR_H - 2, BAR_H - 2);
+        DeleteObject(hFill);
+    }
+
+    // Thumb kotak putih dengan border abu halus
+    RECT thumb = { fx - THUMB_SIZE / 2, cy - THUMB_SIZE / 2,
+                   fx + THUMB_SIZE / 2, cy + THUMB_SIZE / 2 };
+    HBRUSH hThumb = CreateSolidBrush(RGB(255, 255, 255));
+    SelectObject(hdc, hThumb);
+    FillRect(hdc, &thumb, hThumb);
+    DeleteObject(hThumb);
+
+    HPEN hBorderPen = CreatePen(PS_SOLID, 1, RGB(180, 180, 180));
+    SelectObject(hdc, hBorderPen);
+    SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    Rectangle(hdc, thumb.left, thumb.top, thumb.right, thumb.bottom);
+    DeleteObject(hBorderPen);
+
+    SelectObject(hdc, hOldBr);
+    SelectObject(hdc, hOldPen);
+    DeleteObject(hNullPen);
+}
+
+// ==========================================
+// SCRUBBING — klik mulai drag, drag real-time, lepas = seek final
+// ==========================================
 void VideoPlayerGUI::SeekFromTrackbarClick(int mouseX) {
     RECT rc;
     GetClientRect(g_hProgress, &rc);
     if (rc.right <= 0) return;
     // untuk mencegah seek ke 0 apabila durasinya belum diketahui
-    if(m_cachedDuration <= 0.0) return ; 
+    if (m_cachedDuration <= 0.0) return;
+
     double ratio = static_cast<double>(mouseX) / static_cast<double>(rc.right);
     if (ratio < 0.0) ratio = 0.0;
     if (ratio > 1.0) ratio = 1.0;
 
+    m_hotX = mouseX;
+    m_isDraggingProgress = true;
+
     int newPos = static_cast<int>(ratio * m_progressRangeMax);
-    SendMessage(g_hProgress, TBM_SETPOS, TRUE, newPos);
+    SetProgressPos(newPos);
+    UpdateSeekFromPos(newPos);
+}
 
-    double targetSec = ratio * m_cachedDuration;
+void VideoPlayerGUI::DragSeekTo(int x) {
+    RECT rc;
+    GetClientRect(g_hProgress, &rc);
+    if (rc.right <= 0 || m_cachedDuration <= 0.0) return;
 
-    UpdateTimeLabel(targetSec, m_cachedDuration);
-    m_player.Seek(targetSec);
+    double ratio = static_cast<double>(x) / static_cast<double>(rc.right);
+    if (ratio < 0.0) ratio = 0.0;
+    if (ratio > 1.0) ratio = 1.0;
 
-    m_hasPendingSeek = true;
-    m_pendingSeekTarget = targetSec;
-    m_pendingSeekStartTick = GetTickCount();
+    m_hotX = x;
+    int newPos = static_cast<int>(ratio * m_progressRangeMax);
+    SetProgressPos(newPos);
+    UpdateSeekFromPos(newPos);
+}
+
+void VideoPlayerGUI::UpdateSeekFromPos(int pos) {
+    if (m_cachedDuration <= 0.0) return;
+
+    double t = (static_cast<double>(pos) / m_progressRangeMax) * m_cachedDuration;
+    UpdateTimeLabel(t, m_cachedDuration);
+    ShowTimeTip(t);
+
+    DWORD now = GetTickCount();
+    if (now - m_lastSeekTick > 120) {   // throttled seek = smooth scrubbing
+        m_player.Seek(t);
+        m_lastSeekTick = now;
+    }
+}
+
+void VideoPlayerGUI::EndSeekDrag() {
+    if (!m_isDraggingProgress) return;
+    m_isDraggingProgress = false;
+    HideTimeTip();
+
+    if (m_cachedDuration > 0.0) {
+        int pos = (int)SendMessage(g_hProgress, TBM_GETPOS, 0, 0);
+        double t = (static_cast<double>(pos) / m_progressRangeMax) * m_cachedDuration;
+        m_player.Seek(t);
+
+        m_hasPendingSeek = true;
+        m_pendingSeekTarget = t;
+        m_pendingSeekStartTick = GetTickCount();
+    }
+}
+
+void VideoPlayerGUI::ShowTimeTip(double seconds) {
+    if (!m_hTimeTip) return;
+
+    wchar_t buf[16];
+    swprintf_s(buf, L"%02d:%02d", (int)seconds / 60, (int)seconds % 60);
+    SetWindowText(m_hTimeTip, buf);
+
+    POINT pt = { m_hotX, -30 };
+    ClientToScreen(g_hProgress, &pt);
+    SetWindowPos(m_hTimeTip, HWND_TOPMOST, pt.x - 32, pt.y, 64, 22,
+        SWP_NOACTIVATE | SWP_SHOWWINDOW);
+}
+
+void VideoPlayerGUI::HideTimeTip() {
+    if (m_hTimeTip) ShowWindow(m_hTimeTip, SW_HIDE);
 }
 
 // ==========================================
@@ -162,7 +364,7 @@ void VideoPlayerGUI::OnMediaReady() {
 
     m_progressRangeMax = range;
     SendMessage(g_hProgress, TBM_SETRANGE, TRUE, MAKELPARAM(0, m_progressRangeMax));
-    SendMessage(g_hProgress, TBM_SETPOS, TRUE, 0);
+    SetProgressPos(0);
 }
 
 // ==========================================
@@ -190,7 +392,7 @@ void VideoPlayerGUI::OnCommand(WPARAM wParam, LPARAM lParam) {
         case IDM_PLAYBACK_STOP:
             m_player.Stop();
             SetPlayPauseUI(false);
-            SendMessage(g_hProgress, TBM_SETPOS, TRUE, 0);
+            SetProgressPos(0);
             m_cachedDuration = 0.0;
             break;
 
@@ -281,46 +483,32 @@ void VideoPlayerGUI::ToggleFullscreen() {
     }
 }
 // ==========================================
-// HSCROLL — drag & klik trackbar
+// HSCROLL — keyboard arrow di trackbar (drag ditangani subclass)
 // ==========================================
 void VideoPlayerGUI::OnHScroll(WPARAM wParam, LPARAM lParam) {
     HWND hCtrl = (HWND)lParam;
     int code = LOWORD(wParam);
 
     if (hCtrl == g_hProgress) {
-        if (code == TB_THUMBTRACK || code == TB_THUMBPOSITION) {
-            m_isDraggingProgress = true;
-            // mencegah seek nya kembali ke 0 bila durasi videonya belum diketahui hasilnya
-            if(m_cachedDuration <= 0.0) return ;
+        if (code == TB_THUMBTRACK || code == TB_THUMBPOSITION || code == TB_ENDTRACK) {
+            if (m_isDraggingProgress) return;  // drag mouse sudah ditangani subclass
             int pos = (int)SendMessage(g_hProgress, TBM_GETPOS, 0, 0);
-            double targetSec = (static_cast<double>(pos) / m_progressRangeMax) * m_cachedDuration;
-
-            UpdateTimeLabel(targetSec, m_cachedDuration);
-
-            DWORD now = GetTickCount();
-            if (now - m_lastSeekTick > 120) {
-                m_player.Seek(targetSec);
-                m_lastSeekTick = now;
-            }
-        }
-
-        if (code == TB_ENDTRACK) {
-            m_isDraggingProgress = false;
-            if(m_cachedDuration <= 0.0) return;
-            int pos = (int)SendMessage(g_hProgress, TBM_GETPOS, 0, 0);
-            double targetSec = (static_cast<double>(pos) / m_progressRangeMax) * m_cachedDuration;
-            m_player.Seek(targetSec);
-            m_isDraggingProgress = false;
-
-            m_hasPendingSeek = true;
-            m_pendingSeekTarget = targetSec;
-            m_pendingSeekStartTick = GetTickCount();
+            SetProgressPos(pos);
+            UpdateSeekFromPos(pos);
         }
     }
     else if (hCtrl == g_hVolume) {
         int vol = (int)SendMessage(g_hVolume, TBM_GETPOS, 0, 0);
         m_player.SetVolume(vol / 100.0f);
     }
+}
+
+// ==========================================
+// HELPER — set posisi progress + paksa repaint penuh channel
+// ==========================================
+void VideoPlayerGUI::SetProgressPos(int pos) {
+    SendMessage(g_hProgress, TBM_SETPOS, TRUE, pos);
+    InvalidateRect(g_hProgress, nullptr, TRUE);  // kunci fix: repaint SELURUH channel
 }
 
 // ==========================================
@@ -355,7 +543,7 @@ void VideoPlayerGUI::OnTimerTick() {
         } else {
             if (dur > 0.0) {
                 int sliderPos = static_cast<int>((m_pendingSeekTarget / dur) * m_progressRangeMax);
-                SendMessage(g_hProgress, TBM_SETPOS, TRUE, sliderPos);
+                SetProgressPos(sliderPos);
             }
             UpdateTimeLabel(m_pendingSeekTarget, dur);
             return;
@@ -364,7 +552,7 @@ void VideoPlayerGUI::OnTimerTick() {
 
     double pos = m_player.GetPosition();
     int sliderPos = static_cast<int>((pos/dur)* m_progressRangeMax);
-    SendMessage(g_hProgress, TBM_SETPOS, TRUE, sliderPos);
+    SetProgressPos(sliderPos);
     UpdateTimeLabel(pos, dur);
 }
 
@@ -384,21 +572,40 @@ void VideoPlayerGUI::SetPlayPauseUI(bool playing) {
 }
 
 void VideoPlayerGUI::OpenFileDialog() {
-    wchar_t filePath[MAX_PATH] = L"";
-
+    wchar_t filePath[MAX_PATH] = {0};
     OPENFILENAME ofn = {};
+
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = g_hMainWnd;
-    ofn.lpstrFilter = L"Video Files\0*.mp4;*.mkv;*.avi;*.wmv;*.webm;*.mov;*.m4v;*.ts;*.flv;*.mpg;*.mpeg;*.vob;*.ogv;*.3gp\0";
+    ofn.lpstrFilter =
+        L"Video Files\0*.mp4;*.mkv;*.avi;*.mov;*.wmv;*.webm;*.m4v;*.ts;*.flv\0"
+        L"Audio Files\0*.mp3;*.aac;*.flac;*.wav;*.ogg\0"
+        L"All Files\0*.*\0\0";
     ofn.lpstrFile = filePath;
     ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
 
-    if (GetOpenFileName(&ofn)) {
-        m_player.OpenFile(filePath);
-        // playback beneran mulai setelah WM_APP_MEDIA_READY diterima
+    if (!GetOpenFileName(&ofn)) return;
+
+    // Reset state pemutar lama sebelum buka file baru
+    m_player.Stop();
+    SetPlayPauseUI(false);
+    SetProgressPos(0);
+    UpdateTimeLabel(0.0, 0.0);
+    m_cachedDuration = 0.0;
+    m_hasPendingSeek = false;
+    m_isDraggingProgress = false;
+
+    if (m_player.OpenFile(filePath)) {
+        m_player.Play();
+        SetPlayPauseUI(true);
+    } else {
+        MessageBox(g_hMainWnd,
+            L"Gagal membuka file. Format mungkin tidak didukung.",
+            L"Vidi", MB_OK | MB_ICONERROR);
     }
 }
+
 
 // ==========================================
 // CREATE MENU BAR
@@ -452,56 +659,96 @@ void VideoPlayerGUI::CreateControls(HWND hwnd) {
     icex.dwICC = ICC_BAR_CLASSES;
     InitCommonControlsEx(&icex);
 
-    // Build icon paths relative to executable
+    // Font Modern
+    m_hModernFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, 
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Segoe UI");
+    m_hTimeFont = CreateFontW(-15, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, 
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Segoe UI");
+    // Font khusus tooltip (lebih kecil agar pas vertikal di kotak 22px)
+    m_hTipFont = CreateFontW(-12, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Segoe UI");
+
+    // Load Icons
     wchar_t exePath[MAX_PATH];
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
     std::wstring exeDir = exePath;
     exeDir = exeDir.substr(0, exeDir.find_last_of(L'\\') + 1);
     std::wstring assetsDir = exeDir + L"assets\\";
 
-    // Load icons
-    m_hIconPlay      = (HICON)LoadImageW(nullptr, (assetsDir + L"play-button-arrowhead.ico").c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
-    m_hIconPause     = (HICON)LoadImageW(nullptr, (assetsDir + L"pause.ico").c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
-    m_hIconStop      = (HICON)LoadImageW(nullptr, (assetsDir + L"stop-button.ico").c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
-    m_hIconSkipBack  = (HICON)LoadImageW(nullptr, (assetsDir + L"left-arrow.ico").c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
-    m_hIconSkipForward = (HICON)LoadImageW(nullptr, (assetsDir + L"fast-forward.ico").c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
+    m_hIconPlay = (HICON)LoadImageW(nullptr, (assetsDir + L"play-button-arrowhead.ico").c_str(), IMAGE_ICON, 24, 24, LR_LOADFROMFILE);
+    m_hIconPause = (HICON)LoadImageW(nullptr, (assetsDir + L"pause.ico").c_str(), IMAGE_ICON, 24, 24, LR_LOADFROMFILE);
+    m_hIconStop = (HICON)LoadImageW(nullptr, (assetsDir + L"stop-button.ico").c_str(), IMAGE_ICON, 24, 24, LR_LOADFROMFILE);
+    m_hIconSkipBack = (HICON)LoadImageW(nullptr, (assetsDir + L"left-arrow.ico").c_str(), IMAGE_ICON, 24, 24, LR_LOADFROMFILE);
+    m_hIconSkipForward = (HICON)LoadImageW(nullptr, (assetsDir + L"fast-forward.ico").c_str(), IMAGE_ICON, 24, 24, LR_LOADFROMFILE);
 
-    g_hVideoArea = CreateWindowEx(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_BLACKRECT,
-        0, 0, 640, 360, hwnd, nullptr, nullptr, nullptr);
+    // [PENTING] Semua kontrol dibuat dengan posisi (0,0) dan ukuran 0,0
+    // LayoutControls akan mengatur posisi yang benar nanti
+    
+    // Video Area
+    g_hVideoArea = CreateWindowExW(WS_EX_CLIENTEDGE, L"STATIC", L"", 
+        WS_CHILD | WS_VISIBLE | SS_BLACKRECT, 
+        0, 0, 100, 100, hwnd, nullptr, nullptr, nullptr);
 
-    g_hPlayBtn = CreateWindow(L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_ICON,
-        0, 0, 40, 30, hwnd, (HMENU)IDC_BTN_PLAY, nullptr, nullptr);
-    if (m_hIconPlay) SendMessage(g_hPlayBtn, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconPlay);
-
-    g_hPauseBtn = CreateWindow(L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_ICON,
-        45, 0, 40, 30, hwnd, (HMENU)IDC_BTN_PAUSE, nullptr, nullptr);
-    if (m_hIconPause) SendMessage(g_hPauseBtn, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconPause);
-
-    g_hStopBtn = CreateWindow(L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_ICON,
-        90, 0, 40, 30, hwnd, (HMENU)IDC_BTN_STOP, nullptr, nullptr);
-    if (m_hIconStop) SendMessage(g_hStopBtn, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconStop);
-
-    g_hSkipBack = CreateWindow(L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_ICON,
-        135, 0, 40, 30, hwnd, (HMENU)IDC_BTN_SKIPBACK, nullptr, nullptr);
+    // Buttons - dibuat dulu dengan posisi placeholder
+    DWORD btnStyle = WS_CHILD | BS_ICON | BS_FLAT;
+    
+    g_hSkipBack = CreateWindowW(L"BUTTON", L"", btnStyle, 
+        0, 0, 44, 44, hwnd, (HMENU)IDC_BTN_SKIPBACK, nullptr, nullptr);
     if (m_hIconSkipBack) SendMessage(g_hSkipBack, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconSkipBack);
-
-    g_hSkipForward = CreateWindow(L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_ICON,
-        180, 0, 40, 30, hwnd, (HMENU)IDC_BTN_SKIPFORWARD, nullptr, nullptr);
+    
+    g_hPlayBtn = CreateWindowW(L"BUTTON", L"", btnStyle, 
+        0, 0, 48, 48, hwnd, (HMENU)IDC_BTN_PLAY, nullptr, nullptr);
+    if (m_hIconPlay) SendMessage(g_hPlayBtn, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconPlay);
+    
+    g_hPauseBtn = CreateWindowW(L"BUTTON", L"", btnStyle, 
+        0, 0, 48, 48, hwnd, (HMENU)IDC_BTN_PAUSE, nullptr, nullptr);
+    if (m_hIconPause) SendMessage(g_hPauseBtn, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconPause);
+    
+    g_hStopBtn = CreateWindowW(L"BUTTON", L"", btnStyle, 
+        0, 0, 44, 44, hwnd, (HMENU)IDC_BTN_STOP, nullptr, nullptr);
+    if (m_hIconStop) SendMessage(g_hStopBtn, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconStop);
+    
+    g_hSkipForward = CreateWindowW(L"BUTTON", L"", btnStyle, 
+        0, 0, 44, 44, hwnd, (HMENU)IDC_BTN_SKIPFORWARD, nullptr, nullptr);
     if (m_hIconSkipForward) SendMessage(g_hSkipForward, BM_SETIMAGE, IMAGE_ICON, (LPARAM)m_hIconSkipForward);
 
-    // Progress bar — range default sementara (0-1000), akan di-replace OnMediaReady()
-    g_hProgress = CreateWindowEx(0, TRACKBAR_CLASS, L"", WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-        0, 40, 500, 30, hwnd, (HMENU)IDC_PROGRESS, nullptr, nullptr);
-    SendMessage(g_hProgress, TBM_SETRANGE, TRUE, MAKELPARAM(0, m_progressRangeMax));
+    // Progress Bar (VLC-style)
+    g_hProgress = CreateWindowExW(0, TRACKBAR_CLASS, L"", 
+        WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS, 
+        0, 0, 100, 24, hwnd, (HMENU)IDC_PROGRESS, nullptr, nullptr);
+    SetWindowTheme(g_hProgress, L" ", L" ");
+    SendMessage(g_hProgress, TBM_SETRANGEMIN, TRUE, 0);
+    SendMessage(g_hProgress, TBM_SETRANGEMAX, TRUE, m_progressRangeMax);
+    SendMessage(g_hProgress, TBM_SETTHUMBLENGTH, 0, 10);   // channel ramping
     SetWindowSubclass(g_hProgress, ProgressSubclassProc, 1, (DWORD_PTR)this);
 
-    g_hVolume = CreateWindowEx(0, TRACKBAR_CLASS, L"", WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-        510, 40, 120, 30, hwnd, (HMENU)IDC_VOLUME, nullptr, nullptr);
+    // Tooltip waktu seekbar (popup gelap di atas cursor)
+    m_hTimeTip = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        L"STATIC", L"", WS_POPUP | SS_CENTER | SS_CENTERIMAGE,
+        0, 0, 64, 22, hwnd, nullptr, nullptr, nullptr);
+    SetWindowLongPtr(m_hTimeTip, -8 /* GWL_HWNDPARENT */, (LONG_PTR)hwnd);  // route WM_CTLCOLORSTATIC
+    SendMessage(m_hTimeTip, WM_SETFONT, (WPARAM)m_hTipFont, TRUE);
+
+    // Volume Slider
+    g_hVolume = CreateWindowExW(0, TRACKBAR_CLASS, L"", 
+        WS_CHILD | TBS_HORZ | TBS_NOTICKS, 
+        0, 0, 100, 24, hwnd, (HMENU)IDC_VOLUME, nullptr, nullptr);
+    SetWindowTheme(g_hVolume, L" ", L" ");
     SendMessage(g_hVolume, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
     SendMessage(g_hVolume, TBM_SETPOS, TRUE, 100);
 
-    g_hTimeLabel = CreateWindow(L"STATIC", L"00:00 / 00:00", WS_CHILD | WS_VISIBLE,
-        0, 75, 200, 20, hwnd, (HMENU)IDC_TIME_LABEL, nullptr, nullptr);
+    // Time Label
+    g_hTimeLabel = CreateWindowW(L"STATIC", L"00:00 / 00:00", 
+        WS_CHILD | SS_RIGHT, 
+        0, 0, 150, 30, hwnd, (HMENU)IDC_TIME_LABEL, nullptr, nullptr);
+
+    // Apply Fonts
+    HWND hCtrl = GetWindow(hwnd, GW_CHILD);
+    while (hCtrl) {
+        SendMessage(hCtrl, WM_SETFONT, (hCtrl == g_hTimeLabel) ? (WPARAM)m_hTimeFont : (WPARAM)m_hModernFont, TRUE);
+        hCtrl = GetNextWindow(hCtrl, GW_HWNDNEXT);
+    }
 
     m_player.Initialize(g_hVideoArea, hwnd);
     SetTimer(hwnd, ID_TIMER_UPDATE, TIMER_INTERVAL_MS, nullptr);
@@ -537,6 +784,8 @@ bool VideoPlayerGUI::Initialize(HINSTANCE hInstance, int nCmdShow) {
     UpdateWindow(g_hMainWnd);
     return true;
 }
+
+
 
 int VideoPlayerGUI::Run() {
     MSG msg = {};

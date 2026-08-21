@@ -530,10 +530,31 @@ namespace kernelPlayerVidi{
         if(!m_pVideoWindow || !m_hVideoWnd) return;
         RECT rc;
         if(!GetClientRect(m_hVideoWnd, &rc)) return;
-        m_pVideoWindow->put_Left(0);
-        m_pVideoWindow->put_Top(0);
-        m_pVideoWindow->put_Width(rc.right);
-        m_pVideoWindow->put_Height(rc.bottom);
+        if(rc.right <=0||rc.bottom <= 0) return ;
+        // dimensi asli video render
+        int vidW = 0,vidH = 0;
+        GetNativeVideoSize(vidW,vidH);
+        if (vidW > 0 && vidH > 0) {
+            // Letterbox fit: skala menjaga rasio, center di area video
+            double scaleX = (double)rc.right  / vidW;
+            double scaleY = (double)rc.bottom / vidH;
+            double scale  = (scaleX < scaleY) ? scaleX : scaleY;
+            int w = (int)(vidW * scale + 0.5);
+            int h = (int)(vidH * scale + 0.5);
+            int x = (rc.right - w) / 2;
+            int y = (rc.bottom - h) / 2;
+            m_pVideoWindow->put_Left(x);
+            m_pVideoWindow->put_Top(y);
+            m_pVideoWindow->put_Width(w);
+            m_pVideoWindow->put_Height(h);
+        } else {
+            // Fallback perilaku lama (audio-only / ukuran belum diketahui)
+            m_pVideoWindow->put_Left(0);
+            m_pVideoWindow->put_Top(0);
+            m_pVideoWindow->put_Width(rc.right);
+            m_pVideoWindow->put_Height(rc.bottom);
+        }
+
     }
 
     void DirectShowPlayer::HandleGraphEvent(){

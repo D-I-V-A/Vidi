@@ -1,25 +1,24 @@
 #include <windows.h>
-#include <commctrl.h>
-
+#include <combaseapi.h>  // ← WAJIB
 #include "../include/gui/gui.hh"
 
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-                    PWSTR pCmdLine, int nCmdShow) {
-    
-    // Inisialisasi common controls
-    INITCOMMONCONTROLSEX icex;
-    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    icex.dwICC = ICC_BAR_CLASSES | ICC_STANDARD_CLASSES;
-    InitCommonControlsEx(&icex);
-    
-    // Buat instance GUI
-    guiVidi::VideoPlayerGUI gui;
-    
-    if (!gui.Initialize(hInstance, nCmdShow)) {
-        MessageBoxW(NULL, L"Failed to create window!", L"Error", MB_ICONERROR);
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
+    // 1. Initialize COM Library (WAJIB untuk GetOpenFileName)
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"COM Init Failed", L"Error", MB_ICONERROR);
         return -1;
     }
+
+    guiVidi::VideoPlayerGUI player;
+    if (!player.Initialize(hInstance, nCmdShow)) {
+        CoUninitialize();
+        return -1;
+    }
+
+    int result = player.Run();
     
-    // Jalankan message loop
-    return gui.Run();
+    // 2. Cleanup COM
+    CoUninitialize();
+    return result;
 }
