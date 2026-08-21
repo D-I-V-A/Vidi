@@ -151,18 +151,20 @@
 #define IDM_HELP_FAQ            2704
 #define IDM_HELP_CHECK_UPDATE   2705
 #define IDM_ABOUT               2706
-
+#define IDM_APP_ESCAPE          2901
 #define IDM_HELP_ABOUT          IDM_ABOUT
 
 // ==========================================
 // TIMER & MESSAGES
 // ==========================================
 #define ID_TIMER_UPDATE         3001
+#define ID_TIMER_OSI_HIDE       3002
 #define TIMER_INTERVAL_MS       33
 
 #define WM_APP_MEDIA_READY      (WM_APP + 1)
 #define WM_APP_PLAYBACK_ENDED   (WM_APP + 2)
 #define WM_APP_MEDIA_ERROR      (WM_APP + 3)
+#define WM_APP_AUDIO_MISSING    (WM_APP + 4)
 #define WM_APP_GRAPH_EVENT      (WM_APP + 10)
 
 // ==========================================
