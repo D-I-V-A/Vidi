@@ -34,6 +34,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ole32
     oleaut32
     uxtheme
+    wtsapi32
 )
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

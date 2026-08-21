@@ -26,6 +26,7 @@ private:
     HWND g_hToolbar;
     HWND g_hMainWnd;
     HACCEL m_hAccel;
+    HMENU m_hMenuBar;
     HICON m_hIconPlay, m_hIconPause, m_hIconStop, m_hIconSkipBack, m_hIconSkipForward;
     HFONT m_hModernFont;
     HFONT m_hTimeFont;
@@ -44,6 +45,7 @@ private:
     bool m_isDraggingProgress;
     bool m_isPlaying;
     DWORD m_lastSeekTick;
+    DWORD m_lastDurCheckTick;
     bool m_hasPendingSeek;
     double m_pendingSeekTarget;
     DWORD m_pendingSeekStartTick;
@@ -52,11 +54,26 @@ private:
     bool m_isMuted;
     double m_cachedDuration;
     WINDOWPLACEMENT m_prevPlacement;
+    bool m_isFullscreen;
+    bool m_cursorHidden;
+    bool m_wasMinimized;
+    POINT m_lastCursor;
 
     // VLC-style seekbar state
     HWND m_hTimeTip;      // popup tooltip waktu saat scrubbing
     bool m_seekHot;       // mouse sedang hover di atas bar
     int  m_hotX;          // posisi x cursor relatif kontrol progress
+
+    // [VOL 0-150] state hover/drag volume bar
+    bool m_volHot;
+    bool m_volDrag;
+    int  m_volHotX;
+    static const int VOL_MAX = 150;
+
+    // Double-click video area -> toggle fullscreen (STATIC tanpa CS_DBLCLKS,
+    // jadi dideteksi manual via GetTickCount)
+    DWORD m_lastVideoClickTick;
+    short m_lastVideoClickX, m_lastVideoClickY;
 
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void CreateMenuBar(HWND hwnd);
@@ -71,6 +88,9 @@ private:
     void SeekFromTrackbarClick(int mouseX);
     void SetProgressPos(int pos);
     void DrawVlcSeekbar(HDC hdc);
+    void DrawVlcVolumeBar(HDC hdc);
+    void ApplyVolumeFromSlider(int sliderPos);
+    void ShowVolTip(int sliderPos);
     void DragSeekTo(int x);
     void EndSeekDrag();
     void UpdateSeekFromPos(int pos);
@@ -78,9 +98,19 @@ private:
     void HideTimeTip();
     void OnMediaReady();
     void ToggleMute();
-    void ToggleFullscreen();
-
+    void EnterFullscreen();
+    void ExitFullscreen();
+    void FitWindowToVideo();
+    void ShowOSControls(bool visible);
+    void PokeOSControls();
+    void RecoverVideo();
+    void LayoutFullscreen(int width, int height);
+    HACCEL CreatePlayerAccelTable();
     static LRESULT CALLBACK ProgressSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam,
+        LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+    static LRESULT CALLBACK VolumeSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam,
+        LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+    static LRESULT CALLBACK VideoAreaSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 
 public:
@@ -90,12 +120,18 @@ public:
                 m_hIconSkipBack(nullptr), m_hIconSkipForward(nullptr),
                 g_hProgress(nullptr), g_hVolume(nullptr), g_hTimeLabel(nullptr),
                 g_hVideoArea(nullptr), g_hToolbar(nullptr), g_hMainWnd(nullptr),
-                m_hAccel(nullptr), m_hModernFont(nullptr), m_hTimeFont(nullptr), m_hTipFont(nullptr), // <-- Tambahkan inisialisasi font
+                m_hAccel(nullptr), m_hMenuBar(nullptr),
+                m_hModernFont(nullptr), m_hTimeFont(nullptr), m_hTipFont(nullptr),
                 m_isDraggingProgress(false), m_isPlaying(false),
-                m_lastSeekTick(0), m_hasPendingSeek(false), m_pendingSeekTarget(0.0),
+                m_lastSeekTick(0), m_lastDurCheckTick(0),
+                m_hasPendingSeek(false), m_pendingSeekTarget(0.0),
                 m_pendingSeekStartTick(0), m_progressRangeMax(1000),
                 m_lastVolume(1.0f), m_isMuted(false), m_cachedDuration(0.0),
                 m_hTimeTip(nullptr), m_seekHot(false), m_hotX(0),
+                m_volHot(false), m_volDrag(false), m_volHotX(0),
+                m_isFullscreen(false), m_cursorHidden(false), m_wasMinimized(false),
+                m_lastCursor{-1, -1},
+                m_lastVideoClickTick(0), m_lastVideoClickX(0), m_lastVideoClickY(0),
                 m_prevPlacement{ sizeof(WINDOWPLACEMENT) } {}
 
     bool Initialize(HINSTANCE hInstance, int nCmdShow);
