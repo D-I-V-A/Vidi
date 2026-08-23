@@ -973,7 +973,7 @@ if (pSplitter) {
         // [FIX MAXIMIZE] SetWindowPosition = move+size ATOMIK dalam 1 panggilan.
         // put_Left/put_Top/put_Width/put_Height terpisah menyebabkan window renderer
         // di-resize 4x -> distorsi/gradient hijau sesaat saat maximize.
-        m_pVideoWindow->SetWindowPosition(x, y, w, h);
+        if (m_pVideoWindow) m_pVideoWindow->SetWindowPosition(x, y, w, h);
     }
 
     void DirectShowPlayer::HandleGraphEvent(){
