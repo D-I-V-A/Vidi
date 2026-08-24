@@ -20,6 +20,12 @@
 #define IDC_SETTINGS        1011
 #define IDC_VIDEO_AREA      1012
 #define IDC_TOOLBAR         5000
+#define IDC_BTN_FULLSCREEN  1013
+#define IDC_BTN_PLAYLIST    1014
+#define IDC_BTN_LOOP        1015
+#define IDC_BTN_SHUFFLE     1016
+#define IDC_VOL_ICON        1017
+#define IDC_VOL_PERCENT     1018
 
 // Alias untuk kompatibilitas kode lama (opsional)
 #define IDC_BTN_PLAY        IDC_PLAY
