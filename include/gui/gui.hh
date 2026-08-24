@@ -8,12 +8,6 @@
 
 #include "../kernels/directShowPlayer.hh"
 
-// [FIX] HAPUS #define DI BAWAH INI agar tidak bentrok dengan static const di dalam class!
-// #define COLOR_MODERN_BG RGB(255, 255, 255)
-// #define COLOR_MODERN_PRIMARY RGB(0, 120, 212)
-// #define COLOR_MODERN_HOVER RGB(240, 240, 240)
-// #define COLOR_MODERN_BORDER RGB(200, 200, 200)
-// #define COLOR_MODERN_TEXT RGB(50, 50, 50)
 
 namespace guiVidi {
 
@@ -103,6 +97,7 @@ private:
     void FitWindowToVideo();
     void ShowOSControls(bool visible);
     void PokeOSControls();
+    bool CursorOverControls();
     void RecoverVideo();
     void LayoutFullscreen(int width, int height);
     HACCEL CreatePlayerAccelTable();

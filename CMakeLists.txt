@@ -14,6 +14,7 @@ set(SOURCES
     src/main.cc
     src/gui/gui.cc
     src/kernels/directShowPlayer.cc
+    src/app.rc
 )
 
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES})
@@ -35,7 +36,14 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     oleaut32
     uxtheme
     wtsapi32
+    dwmapi
 )
+
+# Manifest di-embed manual lewat src/app.rc (RT_MANIFEST) -> matikan
+# /MANIFEST bawaan linker agar tidak terjadi duplikat resource (CVT1100).
+if(MSVC)
+    target_link_options(${PROJECT_NAME} PRIVATE "/MANIFEST:NO")
+endif()
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
