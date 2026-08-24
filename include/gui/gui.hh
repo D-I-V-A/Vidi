@@ -8,37 +8,33 @@
 
 #include "../kernels/directShowPlayer.hh"
 
-// [FIX] HAPUS #define DI BAWAH INI agar tidak bentrok dengan static const di dalam class!
-// #define COLOR_MODERN_BG RGB(255, 255, 255)
-// #define COLOR_MODERN_PRIMARY RGB(0, 120, 212)
-// #define COLOR_MODERN_HOVER RGB(240, 240, 240)
-// #define COLOR_MODERN_BORDER RGB(200, 200, 200)
-// #define COLOR_MODERN_TEXT RGB(50, 50, 50)
 
 namespace guiVidi {
 
 class VideoPlayerGUI {
 private:
-    HWND g_hPlayBtn, g_hPauseBtn, g_hStopBtn;
+    HWND g_hPlayBtn, g_hStopBtn;
     HWND g_hSkipBack, g_hSkipForward;
+    HWND g_hFullscreenBtn, g_hPlaylistBtn, g_hLoopBtn, g_hShuffleBtn;
     HWND g_hProgress, g_hVolume, g_hTimeLabel;
+    HWND g_hVolIcon, g_hVolPercent;
     HWND g_hVideoArea;
     HWND g_hToolbar;
     HWND g_hMainWnd;
     HACCEL m_hAccel;
     HMENU m_hMenuBar;
     HICON m_hIconPlay, m_hIconPause, m_hIconStop, m_hIconSkipBack, m_hIconSkipForward;
+    HICON m_hIconFullscreen, m_hIconPlaylist, m_hIconLoop, m_hIconShuffle, m_hIconSpeaker;
     HFONT m_hModernFont;
     HFONT m_hTimeFont;
     HFONT m_hTipFont;
     
-    // Warna modern (Sudah benar pakai static const di sini)
     static const COLORREF COLOR_MODERN_BG = RGB(255, 255, 255);
     static const COLORREF COLOR_MODERN_PRIMARY = RGB(0, 120, 212);
     static const COLORREF COLOR_MODERN_TEXT = RGB(50, 50, 50);
-    static const COLORREF COLOR_SEEK_TRACK    = RGB(224, 224, 224); // track abu muda
-    static const COLORREF COLOR_SEEK_FILL     = RGB(255, 140, 0);   // oranye VLC
-    static const COLORREF COLOR_SEEK_FILL_HOT = RGB(255, 170, 51);  // hover/drag
+    static const COLORREF COLOR_SEEK_TRACK    = RGB(224, 224, 224);
+    static const COLORREF COLOR_SEEK_FILL     = RGB(255, 140, 0);
+    static const COLORREF COLOR_SEEK_FILL_HOT = RGB(255, 170, 51);
     static const COLORREF COLOR_TIP_BG        = RGB(30, 30, 30);
 
     kernelPlayerVidi::DirectShowPlayer m_player;
@@ -59,19 +55,18 @@ private:
     bool m_wasMinimized;
     POINT m_lastCursor;
 
-    // VLC-style seekbar state
-    HWND m_hTimeTip;      // popup tooltip waktu saat scrubbing
-    bool m_seekHot;       // mouse sedang hover di atas bar
-    int  m_hotX;          // posisi x cursor relatif kontrol progress
+    HWND m_hTimeTip;
+    bool m_seekHot;
+    int  m_hotX;
 
-    // [VOL 0-150] state hover/drag volume bar
     bool m_volHot;
     bool m_volDrag;
     int  m_volHotX;
     static const int VOL_MAX = 150;
 
-    // Double-click video area -> toggle fullscreen (STATIC tanpa CS_DBLCLKS,
-    // jadi dideteksi manual via GetTickCount)
+    bool m_isLooping;
+    bool m_isShuffle;
+
     DWORD m_lastVideoClickTick;
     short m_lastVideoClickX, m_lastVideoClickY;
 
@@ -103,9 +98,12 @@ private:
     void FitWindowToVideo();
     void ShowOSControls(bool visible);
     void PokeOSControls();
+    bool CursorOverControls();
     void RecoverVideo();
     void LayoutFullscreen(int width, int height);
     HACCEL CreatePlayerAccelTable();
+    void UpdateVolumePercent(int pos);
+    void SetToggleBtnState(HWND btn, bool active);
     static LRESULT CALLBACK ProgressSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
     static LRESULT CALLBACK VolumeSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam,
@@ -114,10 +112,15 @@ private:
         LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 
 public:
-    VideoPlayerGUI() : g_hPlayBtn(nullptr), g_hPauseBtn(nullptr), g_hStopBtn(nullptr),
+    VideoPlayerGUI() : g_hPlayBtn(nullptr), g_hStopBtn(nullptr),
                 g_hSkipBack(nullptr), g_hSkipForward(nullptr),
+                g_hFullscreenBtn(nullptr), g_hPlaylistBtn(nullptr),
+                g_hLoopBtn(nullptr), g_hShuffleBtn(nullptr),
+                g_hVolIcon(nullptr), g_hVolPercent(nullptr),
                 m_hIconPlay(nullptr), m_hIconPause(nullptr), m_hIconStop(nullptr),
                 m_hIconSkipBack(nullptr), m_hIconSkipForward(nullptr),
+                m_hIconFullscreen(nullptr), m_hIconPlaylist(nullptr),
+                m_hIconLoop(nullptr), m_hIconShuffle(nullptr), m_hIconSpeaker(nullptr),
                 g_hProgress(nullptr), g_hVolume(nullptr), g_hTimeLabel(nullptr),
                 g_hVideoArea(nullptr), g_hToolbar(nullptr), g_hMainWnd(nullptr),
                 m_hAccel(nullptr), m_hMenuBar(nullptr),
@@ -129,6 +132,7 @@ public:
                 m_lastVolume(1.0f), m_isMuted(false), m_cachedDuration(0.0),
                 m_hTimeTip(nullptr), m_seekHot(false), m_hotX(0),
                 m_volHot(false), m_volDrag(false), m_volHotX(0),
+                m_isLooping(false), m_isShuffle(false),
                 m_isFullscreen(false), m_cursorHidden(false), m_wasMinimized(false),
                 m_lastCursor{-1, -1},
                 m_lastVideoClickTick(0), m_lastVideoClickX(0), m_lastVideoClickY(0),
