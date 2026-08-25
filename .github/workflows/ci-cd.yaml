@@ -8,7 +8,7 @@ on:
 
 jobs:
   # ==============================================================================
-  # 1. JOB UNTUK LINTING / CEK FORMAT KODE (Berjalan di Luar Branch Main)
+  # 1. JOB UNTUK LINTING / CEK FORMAT KODE
   # ==============================================================================
   lint-format:
     if: github.ref != 'refs/heads/main' && github.base_ref != 'main'
@@ -25,7 +25,7 @@ jobs:
           check-path: '.'
 
   # ==============================================================================
-  # 2. JOB UNTUK BUILD WINDOWS (Menghasilkan Installer MSI)
+  # 2. JOB UNTUK BUILD WINDOWS (Menghasilkan Installer MSI yang Stabil)
   # ==============================================================================
   build-windows-release:
     runs-on: windows-latest
@@ -33,12 +33,13 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # MENGGUNAKAN CHOCO UNTUK MENGINSTAL WIX V3 YANG COMPATIBLE DENGAN CPACK
+      - name: Install WiX Toolset v3 Stable
+        run: |
+          choco install wixtoolset -y
+
       - name: Setup MSVC Compiler & MSBuild
         uses: microsoft/setup-msbuild@v2
-
-      # MENGINSTAL WIX TOOLSET VERSI TERBARU VIA DOTNET UNTUK MEMBUAT MSI
-      - name: Install WiX Toolset
-        run: dotnet tool install --global wix
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -56,7 +57,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          files: build/Vidi-*.msi # Mengambil file installer berekstensi .msi
+          files: build/Vidi-*.msi
           tag_name: v0.1-alpha-${{ github.run_number }}
           name: Release v0.1-alpha (Build ${{ github.run_number }})
           draft: false
