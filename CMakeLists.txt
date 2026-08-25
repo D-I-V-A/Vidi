@@ -45,23 +45,32 @@ if(MSVC)
     target_link_options(${PROJECT_NAME} PRIVATE "/MANIFEST:NO")
 endif()
 
+# ==============================================================================
+# PERINTAH SALIN ASSET LOKAL (HANYA BERJALAN SAAT BUILD BIASA, BUKAN SAAT CPACK)
+# ==============================================================================
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/assets
         $<TARGET_FILE_DIR:${PROJECT_NAME}>/assets
 )
 
-# Salin folder filters (LAV portable) ke samping exe saat build
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/filters
         $<TARGET_FILE_DIR:${PROJECT_NAME}>/filters
 )
 
-install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION .)
-install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets DESTINATION .)
-install(DIRECTORY ${CMAKE_SOURCE_DIR}/filters DESTINATION .)
+# ==============================================================================
+# KONFIGURASI PACKAGING & INSTALLER MSI (FIX WIX COMPRESSION ERROR)
+# ==============================================================================
 
+# 1. Gunakan sub-folder target eksplisit (bukan ".") agar WiX tidak mengalami crash kompresi
+install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets DESTINATION bin/assets)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/filters DESTINATION bin/filters)
+
+# 2. Tambahkan GUID Upgrade wajib agar WiX memiliki identitas registrasi Windows yang sah
+set(CPACK_WIX_UPGRADE_GUID "43FB93DA-EEE1-4C5D-9355-351C2C75B72B")
 
 set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
 set(CPACK_PACKAGE_VENDOR "Vidi Developer")
@@ -69,6 +78,6 @@ set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION_FULL}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Vidi Video & Audio Player")
 
 set(CPACK_GENERATOR "WIX")
-
 set(CPACK_WIX_UI_REF "WixUI_Mondo")
+
 include(CPack)

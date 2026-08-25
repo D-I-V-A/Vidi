@@ -7,9 +7,6 @@ on:
     branches: [ "*" ]
 
 jobs:
-  # ==============================================================================
-  # 1. JOB UNTUK LINTING / CEK FORMAT KODE
-  # ==============================================================================
   lint-format:
     if: github.ref != 'refs/heads/main' && github.base_ref != 'main'
     runs-on: ubuntu-latest
@@ -24,16 +21,12 @@ jobs:
           clang-format-version: '17'
           check-path: '.'
 
-  # ==============================================================================
-  # 2. JOB UNTUK BUILD WINDOWS (Menghasilkan Installer MSI yang Stabil)
-  # ==============================================================================
   build-windows-release:
     runs-on: windows-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # MENGGUNAKAN CHOCO UNTUK MENGINSTAL WIX V3 YANG COMPATIBLE DENGAN CPACK
       - name: Install WiX Toolset v3 Stable
         run: |
           choco install wixtoolset -y
@@ -52,7 +45,6 @@ jobs:
           cd build
           cpack -C Release -G WIX
 
-      # STEP INI HANYA JALAN JIKA KODE SUDAH RESMI DI-MERGE KE BRANCH MAIN
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
