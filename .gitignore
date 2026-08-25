@@ -11,6 +11,7 @@
 *.so
 *.dylib
 *.dll
+!filters/**/*.dll
 *.mod
 *.smod
 *.lai
@@ -18,6 +19,9 @@
 *.a
 *.lib
 *.exe
+!filters/**/*.exe
+!filters/**/*.dat
+!filters/**/*.msg
 a.out
 *.out
 *.app
