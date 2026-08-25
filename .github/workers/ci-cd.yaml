@@ -2,14 +2,16 @@ name: C/C++ CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main", "development","feat/*","refactor/*","fix/*" ]
+    branches: [ "*" ]
   pull_request:
-    branches: [ "main", "development" ]
+    branches: [ "*" ]
 
 jobs:
-  # 1. JOB UNTUK BRANCH DEVELOPMENT (Hanya Cek Format Kode)
+  # ==============================================================================
+  # 1. JOB UNTUK LINTING / CEK FORMAT KODE (Berjalan di Luar Branch Main)
+  # ==============================================================================
   lint-format:
-    if: github.ref == 'refs/heads/development' || github.base_ref == 'development'
+    if: github.ref != 'refs/heads/main' && github.base_ref != 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -21,18 +23,21 @@ jobs:
         with:
           clang-format-version: '17'
           check-path: '.'
-  # 2. JOB UNTUK BRANCH MAIN (Build Package Windows Installer & Release)
+
+  # ==============================================================================
+  # 2. JOB UNTUK BUILD WINDOWS (Wajib Berjalan di Semua Branch & PR untuk Uji Kompilasi)
+  # ==============================================================================
   build-windows-release:
     runs-on: windows-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-      
+
+      # PERBAIKAN SINTAKS POWERSHELL UNTUK MENDAFTARKAN PATH NSIS SECARA VALID
       - name: Install NSIS Compiler and Update PATH
         run: |
           choco install nsis -y
-          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
-
+          echo "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Setup MSVC Compiler & MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -44,11 +49,13 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Build Installer Package (CPack)
-        working-directory: ./build
-        run: cpack -C Release
+        run: |
+          cd build
+          cpack -C Release
 
+      # STEP INI HANYA JALAN JIKA KODE SUDAH RESMI DI-MERGE KE BRANCH MAIN
       - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main' # <--- Dikunci hanya untuk branch main
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           files: build/Vidi-*.exe
