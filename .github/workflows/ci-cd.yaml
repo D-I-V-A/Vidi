@@ -27,15 +27,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install WiX Toolset v3 Stable
-        run: |
-          choco install wixtoolset -y
-          $wixPath = Get-ChildItem "C:\Program Files (x86)\WiX Toolset v3*" -Directory | Select-Object -First 1
-          if ($wixPath) {
-            $binPath = Join-Path $wixPath.FullName "bin"
-            echo $binPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          }
-
       - name: Setup MSVC Compiler & MSBuild
         uses: microsoft/setup-msbuild@v2
 
@@ -45,18 +36,18 @@ jobs:
       - name: Build Project
         run: cmake --build build --config Release
 
-      - name: Build Installer Package (CPack via WiX)
+      - name: Build Installer Package (CPack via NSIS)
         run: |
           cd build
-          cpack -C Release -G WIX
+          cpack -C Release -G NSIS
 
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          files: build/Vidi-*.msi
-          tag_name: v0.1-alpha-${{ github.run_number }}
-          name: Release v0.1-alpha (Build ${{ github.run_number }})
+          files: build/Vidi-*.exe
+          tag_name: v0.2-alpha-${{ github.run_number }}
+          name: Release v0.2-alpha (Build ${{ github.run_number }})
           draft: false
           prerelease: false
         env:

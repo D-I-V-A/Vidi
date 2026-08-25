@@ -61,23 +61,19 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 )
 
 # ==============================================================================
-# KONFIGURASI PACKAGING & INSTALLER MSI (FIX WIX COMPRESSION ERROR)
+# KONFIGURASI PACKAGING & INSTALLER (NSIS)
 # ==============================================================================
 
-# 1. Gunakan sub-folder target eksplisit (bukan ".") agar WiX tidak mengalami crash kompresi
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets DESTINATION bin/assets)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/filters DESTINATION bin/filters)
-
-# 2. Tambahkan GUID Upgrade wajib agar WiX memiliki identitas registrasi Windows yang sah
-set(CPACK_WIX_UPGRADE_GUID "43FB93DA-EEE1-4C5D-9355-351C2C75B72B")
 
 set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
 set(CPACK_PACKAGE_VENDOR "Vidi Developer")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION_FULL}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Vidi Video & Audio Player")
 
-set(CPACK_GENERATOR "WIX")
-set(CPACK_WIX_UI_REF "WixUI_Mondo")
+set(CPACK_GENERATOR "NSIS")
+set(CPACK_NSIS_MODIFY_PATH ON)
 
 include(CPack)
