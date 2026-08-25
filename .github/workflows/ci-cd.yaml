@@ -25,7 +25,7 @@ jobs:
           check-path: '.'
 
   # ==============================================================================
-  # 2. JOB UNTUK BUILD WINDOWS (Wajib Berjalan di Semua Branch & PR untuk Uji Kompilasi)
+  # 2. JOB UNTUK BUILD WINDOWS (Menghasilkan Installer MSI)
   # ==============================================================================
   build-windows-release:
     runs-on: windows-latest
@@ -33,14 +33,12 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Menggunakan PowerShell valid untuk mendaftarkan PATH NSIS ke runner Windows GitHub
-      - name: Install NSIS Compiler and Update PATH
-        run: |
-          choco install nsis -y
-          echo "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
       - name: Setup MSVC Compiler & MSBuild
         uses: microsoft/setup-msbuild@v2
+
+      # MENGINSTAL WIX TOOLSET VERSI TERBARU VIA DOTNET UNTUK MEMBUAT MSI
+      - name: Install WiX Toolset
+        run: dotnet tool install --global wix
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -48,17 +46,17 @@ jobs:
       - name: Build Project
         run: cmake --build build --config Release
 
-      - name: Build Installer Package (CPack)
+      - name: Build Installer Package (CPack via WiX)
         run: |
           cd build
-          cpack -C Release
+          cpack -C Release -G WIX
 
       # STEP INI HANYA JALAN JIKA KODE SUDAH RESMI DI-MERGE KE BRANCH MAIN
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          files: build/Vidi-*.exe
+          files: build/Vidi-*.msi # Mengambil file installer berekstensi .msi
           tag_name: v0.1-alpha-${{ github.run_number }}
           name: Release v0.1-alpha (Build ${{ github.run_number }})
           draft: false
