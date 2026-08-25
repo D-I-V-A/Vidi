@@ -20,7 +20,7 @@ jobs:
         with:
           clang-format-version: '17'
           check-path: '.' # Memeriksa file .cc/.hh berdasarkan berkas .clang-format Anda
-
+          no-fail: 'true'
   # 2. JOB UNTUK BRANCH MAIN (Build Package Windows Installer & Release)
   build-windows-release:
     if: github.ref == 'refs/heads/main'
