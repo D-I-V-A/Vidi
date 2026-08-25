@@ -33,7 +33,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # PERBAIKAN SINTAKS POWERSHELL UNTUK MENDAFTARKAN PATH NSIS SECARA VALID
+      # Menggunakan PowerShell valid untuk mendaftarkan PATH NSIS ke runner Windows GitHub
       - name: Install NSIS Compiler and Update PATH
         run: |
           choco install nsis -y
