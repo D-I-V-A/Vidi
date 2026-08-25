@@ -17,10 +17,10 @@ jobs:
 
       - name: Run Clang-Format Style Check
         uses: jidicula/clang-format-action@v4.11.0
+        continue-on-error: true 
         with:
           clang-format-version: '17'
-          check-path: '.' # Memeriksa file .cc/.hh berdasarkan berkas .clang-format Anda
-          no-fail: 'true'
+          check-path: '.'
   # 2. JOB UNTUK BRANCH MAIN (Build Package Windows Installer & Release)
   build-windows-release:
     if: github.ref == 'refs/heads/main'
