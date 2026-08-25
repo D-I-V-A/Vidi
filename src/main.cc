@@ -1,5 +1,5 @@
 #include <windows.h>
-#include <combaseapi.h>  // ← WAJIB
+#include <combaseapi.h> // ← WAJIB
 #include "../include/gui/gui.hh"
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
@@ -17,7 +17,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     }
 
     int result = player.Run();
-    
+
     // 2. Cleanup COM
     CoUninitialize();
     return result;
