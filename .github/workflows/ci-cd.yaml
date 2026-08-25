@@ -1,0 +1,54 @@
+name: C/C++ CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main", "development","feat/*","refactor/*","fix/*" ]
+  pull_request:
+    branches: [ "main", "development" ]
+
+jobs:
+  # 1. JOB UNTUK BRANCH DEVELOPMENT (Hanya Cek Format Kode)
+  lint-format:
+    if: github.ref == 'refs/heads/development' || github.base_ref == 'development'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Clang-Format Style Check
+        uses: jidicula/clang-format-action@v4.11.0
+        with:
+          clang-format-version: '17'
+          check-path: '.' # Memeriksa file .cc/.hh berdasarkan berkas .clang-format Anda
+
+  # 2. JOB UNTUK BRANCH MAIN (Build Package Windows Installer & Release)
+  build-windows-release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC Compiler & MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Project
+        run: cmake --build build --config Release
+
+      - name: Build Installer Package (CPack)
+        working-directory: ./build
+        run: cpack -C Release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/Vidi-*.exe
+          tag_name: v0.1-alpha-${{ github.run_number }}
+          name: Release v0.1-alpha (Build ${{ github.run_number }})
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
