@@ -1,0 +1,57 @@
+name: C/C++ CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "*" ]
+  pull_request:
+    branches: [ "*" ]
+
+jobs:
+  lint-format:
+    if: github.ref != 'refs/heads/main' && github.base_ref != 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Clang-Format Style Check
+        uses: jidicula/clang-format-action@v4.11.0
+        continue-on-error: true 
+        with:
+          clang-format-version: '17'
+          check-path: '.'
+
+  build-windows-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Setup MSVC Compiler & MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Project
+        run: cmake --build build --config Release
+
+      - name: Build Installer Package (CPack via NSIS)
+        run: |
+          cd build
+          cpack -C Release -G NSIS
+
+      - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/Vidi-*.exe
+          tag_name: v0.2-alpha-${{ github.run_number }}
+          name: Release v0.2-alpha (Build ${{ github.run_number }})
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

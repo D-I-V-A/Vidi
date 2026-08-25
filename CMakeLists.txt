@@ -14,6 +14,7 @@ set(SOURCES
     src/main.cc
     src/gui/gui.cc
     src/kernels/directShowPlayer.cc
+    src/app.rc
 )
 
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES})
@@ -33,17 +34,46 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     strmiids
     ole32
     oleaut32
+    uxtheme
+    wtsapi32
+    dwmapi
 )
 
+# Manifest di-embed manual lewat src/app.rc (RT_MANIFEST) -> matikan
+# /MANIFEST bawaan linker agar tidak terjadi duplikat resource (CVT1100).
+if(MSVC)
+    target_link_options(${PROJECT_NAME} PRIVATE "/MANIFEST:NO")
+endif()
+
+# ==============================================================================
+# PERINTAH SALIN ASSET LOKAL (HANYA BERJALAN SAAT BUILD BIASA, BUKAN SAAT CPACK)
+# ==============================================================================
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/assets
         $<TARGET_FILE_DIR:${PROJECT_NAME}>/assets
 )
 
-# Salin folder filters (LAV portable) ke samping exe saat build
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/filters
         $<TARGET_FILE_DIR:${PROJECT_NAME}>/filters
 )
+
+# ==============================================================================
+# KONFIGURASI PACKAGING & INSTALLER (NSIS)
+# ==============================================================================
+
+install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets DESTINATION bin/assets)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/filters DESTINATION bin/filters)
+
+set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
+set(CPACK_PACKAGE_VENDOR "Vidi Developer")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION_FULL}")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Vidi Video & Audio Player")
+
+set(CPACK_GENERATOR "NSIS")
+set(CPACK_NSIS_MODIFY_PATH ON)
+
+include(CPack)
