@@ -27,6 +27,9 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Install NSIS
+        run: choco install nsis -y
+
       - name: Setup MSVC Compiler & MSBuild
         uses: microsoft/setup-msbuild@v2
 
