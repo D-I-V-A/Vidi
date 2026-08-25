@@ -28,8 +28,11 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
       
-      - name: Install NSIS Compiler via Choco
-      - run: choco install nsis -y
+      - name: Install NSIS Compiler and Update PATH
+        run: |
+          choco install nsis -y
+          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+
 
       - name: Setup MSVC Compiler & MSBuild
         uses: microsoft/setup-msbuild@v2
