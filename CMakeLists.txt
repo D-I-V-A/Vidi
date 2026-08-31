@@ -14,6 +14,7 @@ set(SOURCES
     src/main.cc
     src/gui/gui.cc
     src/kernels/directShowPlayer.cc
+    src/kernels/subtitleReader.cc
     src/app.rc
 )
 

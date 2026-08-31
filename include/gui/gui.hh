@@ -70,6 +70,10 @@ private:
     DWORD m_lastVideoClickTick;
     short m_lastVideoClickX, m_lastVideoClickY;
 
+    static const int MAX_SUB_OVERLAYS = 16;
+    HWND    m_hSubOverlay[MAX_SUB_OVERLAYS];
+    HFONT   m_hSubFont;
+
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void CreateMenuBar(HWND hwnd);
     void LayoutControls(int width, int height);
@@ -101,6 +105,8 @@ private:
     bool CursorOverControls();
     void RecoverVideo();
     void LayoutFullscreen(int width, int height);
+    void CreateSubtitleOverlay(HWND hwnd);
+    void UpdateSubtitleDisplays(double posSeconds);
     HACCEL CreatePlayerAccelTable();
     void UpdateVolumePercent(int pos);
     void SetToggleBtnState(HWND btn, bool active);
@@ -136,7 +142,11 @@ public:
                 m_isFullscreen(false), m_cursorHidden(false), m_wasMinimized(false),
                 m_lastCursor{-1, -1},
                 m_lastVideoClickTick(0), m_lastVideoClickX(0), m_lastVideoClickY(0),
-                m_prevPlacement{ sizeof(WINDOWPLACEMENT) } {}
+                m_hSubFont(nullptr),
+                m_prevPlacement{ sizeof(WINDOWPLACEMENT) } {
+                    for (int i = 0; i < MAX_SUB_OVERLAYS; ++i)
+                        m_hSubOverlay[i] = nullptr;
+                }
 
     bool Initialize(HINSTANCE hInstance, int nCmdShow);
     int Run();
