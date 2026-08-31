@@ -22,6 +22,7 @@ struct SubtitleEntry {
     std::wstring text;
     double posX = -1; // from \pos(x,y), -1 = not specified
     double posY = -1;
+    int alignment = 0; // \an tag: 1-9 (0 = tidak ada)
 };
 
 class SubtitleReader {
@@ -65,8 +66,12 @@ class SubtitleReader {
     std::vector<SubtitleEntry> m_subtitleIndex;
     std::wstring GetSubtitleAt(double timeSeconds);
     std::vector<SubtitleEntry> GetActiveSubtitles(double timeSeconds);
-    double GetPlayResX() const { return m_playResX; }
-    double GetPlayResY() const { return m_playResY; }
+    double GetPlayResX() const {
+        return m_playResX;
+    }
+    double GetPlayResY() const {
+        return m_playResY;
+    }
 
     struct TimedText {
         double startSeconds;

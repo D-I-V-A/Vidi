@@ -448,6 +448,13 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 
     case WM_ACTIVATEAPP:
         // Kehilangan fokus: tetap play (gaya VLC). Fokus kembali: pulihkan video.
+        if (self && !wParam) {
+            // Sembunyikan semua subtitle overlay saat focus hilang
+            self->HideAllSubOverlays();
+        } else if (self && wParam) {
+            // Focus kembali: izinkan overlay ditampilkan lagi
+            self->m_subsHidden = false;
+        }
         if (self && self->m_isFullscreen) {
             if (!wParam) {
                 // Focus hilang: turunkan dari topmost supaya app lain muncul di depan
@@ -1787,9 +1794,8 @@ void VideoPlayerGUI::CreateSubtitleOverlay(HWND hwnd) {
 
     for (int i = 0; i < MAX_SUB_OVERLAYS; ++i) {
         m_hSubOverlay[i] =
-            CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
-                            L"VidiSubOverlay", L"",
-                            WS_POPUP, 0, 0, 100, 40, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+            CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_NOACTIVATE, L"VidiSubOverlay",
+                            L"", WS_POPUP, 0, 0, 100, 40, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
         if (m_hSubOverlay[i]) {
             SetLayeredWindowAttributes(m_hSubOverlay[i], 0, 255, LWA_ALPHA);
             SendMessage(m_hSubOverlay[i], WM_SETFONT, (WPARAM)m_hSubFont, TRUE);
@@ -1797,14 +1803,24 @@ void VideoPlayerGUI::CreateSubtitleOverlay(HWND hwnd) {
     }
 }
 
+void VideoPlayerGUI::HideAllSubOverlays() {
+    m_subsHidden = true;
+    for (int i = 0; i < MAX_SUB_OVERLAYS; ++i) {
+        if (m_hSubOverlay[i])
+            ShowWindow(m_hSubOverlay[i], SW_HIDE);
+    }
+}
+
 void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
+    if (m_subsHidden)
+        return;
     auto entries = m_player.GetActiveSubtitles(posSeconds);
 
     RECT videoRC = {};
     if (g_hVideoArea)
         GetClientRect(g_hVideoArea, &videoRC);
-    POINT tl = { videoRC.left, videoRC.top };
-    POINT br = { videoRC.right, videoRC.bottom };
+    POINT tl = {videoRC.left, videoRC.top};
+    POINT br = {videoRC.right, videoRC.bottom};
     if (g_hVideoArea) {
         ClientToScreen(g_hVideoArea, &tl);
         ClientToScreen(g_hVideoArea, &br);
@@ -1814,66 +1830,146 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
 
     double playResX = m_player.GetPlayResX();
     double playResY = m_player.GetPlayResY();
-    if (playResX <= 0) playResX = 1280;
-    if (playResY <= 0) playResY = 720;
+    if (playResX <= 0)
+        playResX = 1280;
+    if (playResY <= 0)
+        playResY = 720;
 
     double dpi = GetDpiScale(g_hMainWnd);
+    std::vector<int> withPos;
+    std::vector<int> withoutPos;
 
-    // Show/hide overlays based on active entries
+    for (int i = 0; i < (int)entries.size(); ++i) {
+        if (entries[i].text.empty())
+            continue;
+        if (entries[i].posX >= 0 && entries[i].posY >= 0)
+            withPos.push_back(i);
+        else
+            withoutPos.push_back(i);
+    }
     int used = 0;
-    for (int i = 0; i < MAX_SUB_OVERLAYS; ++i) {
-        if (used < (int)entries.size() && entries[used].text[0] != L'\0') {
-            const auto& e = entries[used];
+    // Render subtitles with explicit \pos() — each keeps its own position
+    for (int idx : withPos) {
+        if (used >= MAX_SUB_OVERLAYS)
+            break;
+        const auto& e = entries[idx];
 
-            HDC hdc = GetDC(m_hSubOverlay[i]);
-            HGDIOBJ oldFont = SelectObject(hdc, m_hSubFont);
+        HDC hdc = GetDC(m_hSubOverlay[used]);
+        HGDIOBJ oldFont = SelectObject(hdc, m_hSubFont);
 
-            const wchar_t* text = e.text.c_str();
-            RECT rcCalc = {0, 0, 800, 200};
-            DrawTextW(hdc, text, -1, &rcCalc, DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
+        const wchar_t* text = e.text.c_str();
+        RECT rcCalc = {0, 0, 800, 200};
+        DrawTextW(hdc, text, -1, &rcCalc, DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
 
-            int textW = rcCalc.right + (int)(40 * dpi);
-            int textH = rcCalc.bottom + (int)(10 * dpi);
+        int textW = rcCalc.right + (int)(40 * dpi);
+        int textH = rcCalc.bottom + (int)(10 * dpi);
 
-            int posX, posY;
+        int posX = vidX + (int)((e.posX / playResX) * vidW) - textW / 2;
+        int posY = vidY + (int)((e.posY / playResY) * vidH) - textH / 2;
 
-            if (e.posX >= 0 && e.posY >= 0) {
-                // Map ASS \pos(x,y) to screen coords
-                // ASS origin is top-left of PlayRes, x=right, y=down
-                posX = vidX + (int)((e.posX / playResX) * vidW) - textW / 2;
-                posY = vidY + (int)((e.posY / playResY) * vidH) - textH / 2;
+        if (posX < vidX)
+            posX = vidX;
+        if (posY < vidY)
+            posY = vidY;
+        if (posX + textW > vidX + vidW)
+            posX = vidX + vidW - textW;
+        if (posY + textH > vidY + vidH)
+            posY = vidY + vidH - textH;
 
-                // Clamp to video area
-                if (posX < vidX) posX = vidX;
-                if (posY < vidY) posY = vidY;
-                if (posX + textW > vidX + vidW) posX = vidX + vidW - textW;
-                if (posY + textH > vidY + vidH) posY = vidY + vidH - textH;
-            } else {
-                // Default: bottom center
-                int maxW = vidW - (int)(60 * dpi);
-                if (textW > maxW) textW = maxW;
-                posX = vidX + (vidW - textW) / 2;
-                posY = vidY + vidH - textH - (int)(30 * dpi);
-            }
+        SetWindowPos(m_hSubOverlay[used], HWND_TOPMOST, posX, posY, textW, textH, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
-            SetWindowPos(m_hSubOverlay[i], HWND_TOPMOST, posX, posY, textW, textH,
-                         SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        RECT rcPaint = {0, 0, textW, textH};
+        HBRUSH hbrBg = CreateSolidBrush(RGB(0, 0, 0));
+        FillRect(hdc, &rcPaint, hbrBg);
+        DeleteObject(hbrBg);
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, RGB(255, 255, 255));
+        DrawTextW(hdc, text, -1, &rcPaint, DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
 
-            // Paint: semi-transparent black bg + white text
-            RECT rcPaint = {0, 0, textW, textH};
-            HBRUSH hbrBg = CreateSolidBrush(RGB(0, 0, 0));
-            FillRect(hdc, &rcPaint, hbrBg);
-            DeleteObject(hbrBg);
-            SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, RGB(255, 255, 255));
-            DrawTextW(hdc, text, -1, &rcPaint, DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
+        SelectObject(hdc, oldFont);
+        ReleaseDC(m_hSubOverlay[used], hdc);
+        used++;
+    }
 
-            SelectObject(hdc, oldFont);
-            ReleaseDC(m_hSubOverlay[i], hdc);
-            used++;
+    // Render subtitles without \pos() — group by \an alignment, stack per group
+    // \an: 1=BL 2=BC 3=BR 4=ML 5=MC 6=MR 7=TL 8=TC 9=TR
+    // Track stack offset per alignment group
+    int stackByAlignment[10] = {}; // index 0 unused, 1-9 for \an values
+
+    for (int idx : withoutPos) {
+        if (used >= MAX_SUB_OVERLAYS)
+            break;
+        const auto& e = entries[idx];
+
+        HDC hdc = GetDC(m_hSubOverlay[used]);
+        HGDIOBJ oldFont = SelectObject(hdc, m_hSubFont);
+
+        const wchar_t* text = e.text.c_str();
+        RECT rcCalc = {0, 0, 800, 200};
+        DrawTextW(hdc, text, -1, &rcCalc, DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
+
+        int textW = rcCalc.right + (int)(40 * dpi);
+        int textH = rcCalc.bottom + (int)(10 * dpi);
+
+        int maxW = vidW - (int)(60 * dpi);
+        if (textW > maxW)
+            textW = maxW;
+
+        int an = e.alignment;
+        if (an < 1 || an > 9)
+            an = 2; // default: bottom-center
+
+        int margin = (int)(30 * dpi);
+        int posX, posY;
+
+        // Horizontal position based on alignment column
+        if (an == 1 || an == 4 || an == 7)
+            posX = vidX + margin; // left
+        else if (an == 3 || an == 6 || an == 9)
+            posX = vidX + vidW - textW - margin; // right
+        else
+            posX = vidX + (vidW - textW) / 2; // center
+
+        // Vertical position based on alignment row + stack offset
+        int offset = stackByAlignment[an];
+        if (an >= 7) {
+            // Top row: stack downward from top
+            posY = vidY + margin + offset;
+            stackByAlignment[an] += textH + (int)(4 * dpi);
+        } else if (an >= 4) {
+            // Middle row: stack downward from middle
+            posY = vidY + vidH / 2 - textH / 2 + offset;
+            stackByAlignment[an] += textH + (int)(4 * dpi);
         } else {
-            ShowWindow(m_hSubOverlay[i], SW_HIDE);
+            // Bottom row (1,2,3): stack upward from bottom
+            posY = vidY + vidH - textH - margin - offset;
+            stackByAlignment[an] += textH + (int)(4 * dpi);
         }
+
+        // Clamp to video area
+        if (posX < vidX) posX = vidX;
+        if (posY < vidY) posY = vidY;
+        if (posX + textW > vidX + vidW) posX = vidX + vidW - textW;
+        if (posY + textH > vidY + vidH) posY = vidY + vidH - textH;
+
+        SetWindowPos(m_hSubOverlay[used], HWND_TOPMOST, posX, posY, textW, textH, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+        RECT rcPaint = {0, 0, textW, textH};
+        HBRUSH hbrBg = CreateSolidBrush(RGB(0, 0, 0));
+        FillRect(hdc, &rcPaint, hbrBg);
+        DeleteObject(hbrBg);
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, RGB(255, 255, 255));
+        DrawTextW(hdc, text, -1, &rcPaint, DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
+
+        SelectObject(hdc, oldFont);
+        ReleaseDC(m_hSubOverlay[used], hdc);
+        used++;
+    }
+
+    // Hide unused overlays
+    for (int i = used; i < MAX_SUB_OVERLAYS; ++i) {
+        ShowWindow(m_hSubOverlay[i], SW_HIDE);
     }
 }
 

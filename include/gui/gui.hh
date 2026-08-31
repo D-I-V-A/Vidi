@@ -73,6 +73,7 @@ private:
     static const int MAX_SUB_OVERLAYS = 16;
     HWND    m_hSubOverlay[MAX_SUB_OVERLAYS];
     HFONT   m_hSubFont;
+    bool    m_subsHidden;
 
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void CreateMenuBar(HWND hwnd);
@@ -107,6 +108,7 @@ private:
     void LayoutFullscreen(int width, int height);
     void CreateSubtitleOverlay(HWND hwnd);
     void UpdateSubtitleDisplays(double posSeconds);
+    void HideAllSubOverlays();
     HACCEL CreatePlayerAccelTable();
     void UpdateVolumePercent(int pos);
     void SetToggleBtnState(HWND btn, bool active);
@@ -142,7 +144,7 @@ public:
                 m_isFullscreen(false), m_cursorHidden(false), m_wasMinimized(false),
                 m_lastCursor{-1, -1},
                 m_lastVideoClickTick(0), m_lastVideoClickX(0), m_lastVideoClickY(0),
-                m_hSubFont(nullptr),
+                m_hSubFont(nullptr), m_subsHidden(false),
                 m_prevPlacement{ sizeof(WINDOWPLACEMENT) } {
                     for (int i = 0; i < MAX_SUB_OVERLAYS; ++i)
                         m_hSubOverlay[i] = nullptr;

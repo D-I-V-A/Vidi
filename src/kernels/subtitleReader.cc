@@ -187,43 +187,64 @@ static std::wstring StripASSTags(const char* text) {
 
 // Parse \pos(x,y) dari text ASS — return true jika ditemukan
 static bool ExtractPosTag(const std::string& text, double& outX, double& outY) {
-    // Cari \pos( di dalam {...} tags
+    // Cari \pos( atau \pos ( di dalam {...} tags
     size_t pos = 0;
     while (pos < text.size()) {
         size_t tagStart = text.find("\\pos(", pos);
-        if (tagStart == std::string::npos) return false;
-        size_t argsStart = tagStart + 5;
+        size_t prefixLen = 5; // panjang "\pos("
+        if (tagStart == std::string::npos) {
+            tagStart = text.find("\\pos (", pos);
+            prefixLen = 6;
+            if (tagStart == std::string::npos)
+                return false;
+        }
+        size_t argsStart = tagStart + prefixLen;
         size_t parenEnd = text.find(')', argsStart);
-        if (parenEnd == std::string::npos) { pos = argsStart; continue; }
+        if (parenEnd == std::string::npos) {
+            pos = argsStart;
+            continue;
+        }
         std::string args = text.substr(argsStart, parenEnd - argsStart);
+        // Coba tanpa spasi dulu (kasus paling umum)
         if (sscanf_s(args.c_str(), "%lf,%lf", &outX, &outY) == 2)
+            return true;
+        // Fallback: handle spasi di sekitar koma
+        if (sscanf_s(args.c_str(), "%lf , %lf", &outX, &outY) == 2)
             return true;
         pos = parenEnd + 1;
     }
     return false;
 }
 
+static int ExtractAnTag(const std::string& text) {
+    size_t pos = text.find("\\an");
+    if (pos == std::string::npos)
+        return 0;
+    pos += 3;
+    if (pos < text.size() && text[pos] >= '1' && text[pos] <= '9')
+        return text[pos] - '0';
+    return 0;
+}
+
 // Parse ASS dialogue — 2 format:
 // 1. Full: "Dialogue: Layer,Start,End,Style,Name,ML,MR,MV,Effect,Text"
 // 2. MKV:  "ReadOrder,Layer,Style,Name,ML,MR,MV,Effect,Text" (timestamps dari PTS)
 // Penting: text BISA mengandung koma (dalam \pos, \move, dll)
-static bool ParseASSDialogue(const std::string& line,
-                              double ptsSec,
-                              double& outStartSec, double& outEndSec,
-                              std::wstring& outText,
-                              double& outPosX, double& outPosY) {
+static bool ParseASSDialogue(const std::string& line, double ptsSec, double& outStartSec, double& outEndSec,
+                             std::wstring& outText, double& outPosX, double& outPosY, int& outAlignment) {
     bool isFullFormat = (line.compare(0, 9, "Dialogue:") == 0);
     int textAfterComma = isFullFormat ? 9 : 8; // text starts after Nth comma
-
     // Cari posisi koma ke-N
     size_t pos = isFullFormat ? 10 : 0;
     for (int i = 0; i < textAfterComma; ++i) {
         pos = line.find(',', pos);
-        if (pos == std::string::npos) return false;
+        if (pos == std::string::npos)
+            return false;
         pos++; // skip comma
     }
     // pos sekarang menunjuk awal text
-    if (pos >= line.size()) return false;
+    if (pos >= line.size())
+        return false;
 
     std::string textRaw = line.substr(pos);
 
@@ -231,11 +252,14 @@ static bool ParseASSDialogue(const std::string& line,
         // Full ASS: parse Start dan End
         size_t p1 = 10;
         size_t c1 = line.find(',', p1);
-        if (c1 == std::string::npos) return false;
+        if (c1 == std::string::npos)
+            return false;
         size_t c2 = line.find(',', c1 + 1);
-        if (c2 == std::string::npos) return false;
+        if (c2 == std::string::npos)
+            return false;
         size_t c3 = line.find(',', c2 + 1);
-        if (c3 == std::string::npos) return false;
+        if (c3 == std::string::npos)
+            return false;
 
         std::string startStr = line.substr(c1 + 1, c2 - c1 - 1);
         std::string endStr = line.substr(c2 + 1, c3 - c2 - 1);
@@ -250,7 +274,8 @@ static bool ParseASSDialogue(const std::string& line,
 
         outStartSec = parseTime(startStr);
         outEndSec = parseTime(endStr);
-        if (outStartSec < 0 || outEndSec < 0) return false;
+        if (outStartSec < 0 || outEndSec < 0)
+            return false;
     } else {
         // MKV: timestamps dari packet PTS
         outStartSec = ptsSec;
@@ -260,8 +285,22 @@ static bool ParseASSDialogue(const std::string& line,
     // Extract \pos(x,y) SEBELUM strip tags
     outPosX = -1;
     outPosY = -1;
-    ExtractPosTag(textRaw, outPosX, outPosY);
-
+    bool posFound = ExtractPosTag(textRaw, outPosX, outPosY);
+    // Debug: log semua entry yang mengandung \pos(
+    {
+        size_t hasPos = textRaw.find("\\pos(");
+        if (hasPos == std::string::npos)
+            hasPos = textRaw.find("\\pos (");
+        if (hasPos != std::string::npos) {
+            if (posFound) {
+                VSubLog(L"[VIDI] Sub: \\pos OK (%.0f,%.0f) raw=[%hs]", outPosX, outPosY, textRaw.c_str());
+            } else {
+                VSubLog(L"[VIDI] Sub: \\pos FAILED raw=[%hs]", textRaw.c_str());
+            }
+        }
+    }
+    // Extract \an alignment SEBELUM strip tags
+    outAlignment = ExtractAnTag(textRaw);
     outText = StripASSTags(textRaw.c_str());
     return !outText.empty();
 }
@@ -290,7 +329,8 @@ static double DetectBestTimebase(int64_t maxPts) {
             }
         }
     }
-    VSubLog(L"[VIDI] Sub: maxPts=%lld, fallback divisor=%.0f, maxTime=%.1fs", maxPts, bestDivisor, (double)maxPts / bestDivisor);
+    VSubLog(L"[VIDI] Sub: maxPts=%lld, fallback divisor=%.0f, maxTime=%.1fs", maxPts, bestDivisor,
+            (double)maxPts / bestDivisor);
     return bestDivisor;
 }
 
@@ -576,10 +616,12 @@ void SubtitleReader::DetectAndBuildInOnePass() {
 
         std::wstring text;
         double posX = -1, posY = -1;
+        int alignment = 0;
         double startSec = ptsSec, endSec = ptsSec + durSec;
 
-        if (ParseASSDialogue(raw.data, ptsSec, startSec, endSec, text, posX, posY)) {
-            if (durSec > 0) withDuration++;
+        if (ParseASSDialogue(raw.data, ptsSec, startSec, endSec, text, posX, posY, alignment)) {
+            if (durSec > 0)
+                withDuration++;
         } else {
             skipped++;
             continue;
@@ -610,6 +652,7 @@ void SubtitleReader::DetectAndBuildInOnePass() {
         entry.text = text;
         entry.posX = posX;
         entry.posY = posY;
+        entry.alignment = alignment;
         m_subtitleIndex.push_back(entry);
     }
 
@@ -636,8 +679,8 @@ void SubtitleReader::DetectAndBuildInOnePass() {
     if (!m_subtitleIndex.empty() && m_subtitleIndex.back().endSeconds <= m_subtitleIndex.back().startSeconds)
         m_subtitleIndex.back().endSeconds = m_subtitleIndex.back().startSeconds + 3.0;
 
-    VSubLog(L"[VIDI] Sub: %d entries built (%d with MKV duration), %d skipped",
-            (int)m_subtitleIndex.size(), withDuration, skipped);
+    VSubLog(L"[VIDI] Sub: %d entries built (%d with MKV duration), %d skipped", (int)m_subtitleIndex.size(),
+            withDuration, skipped);
 }
 
 // ============================================================
