@@ -71,7 +71,7 @@ class DirectShowPlayer {
     void GetNativeVideoSize(int& width, int& height);
     SubtitleReader& GetSubtitleReader() { return m_subReader; }
     std::wstring GetSubtitleText(double timeSeconds) { return m_subReader.GetSubtitleAt(timeSeconds); }
-    std::vector<SubtitleEntry> GetActiveSubtitles(double timeSeconds) { return m_subReader.GetActiveSubtitles(timeSeconds); }
+    void GetActiveSubtitles(double timeSeconds, std::vector<SubtitleEntry>& out) { m_subReader.GetActiveSubtitles(timeSeconds, out); }
     double GetPlayResX() const { return m_subReader.GetPlayResX(); }
     double GetPlayResY() const { return m_subReader.GetPlayResY(); }
     HWND GetNotifyWnd() const { return m_hNotifyWnd; }

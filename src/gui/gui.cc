@@ -531,6 +531,9 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             DeleteObject(self->m_hTipFont);
         if (self->m_hSubFont)
             DeleteObject(self->m_hSubFont);
+        for (auto& [h, f] : self->m_subFontCache)
+            DeleteObject(f);
+        self->m_subFontCache.clear();
         WTSUnRegisterSessionNotification(hwnd);
         KillTimer(hwnd, ID_TIMER_UPDATE);
         PostQuitMessage(0);
@@ -1797,10 +1800,26 @@ void VideoPlayerGUI::CreateSubtitleOverlay(HWND hwnd) {
             CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_NOACTIVATE, L"VidiSubOverlay",
                             L"", WS_POPUP, 0, 0, 100, 40, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
         if (m_hSubOverlay[i]) {
-            SetLayeredWindowAttributes(m_hSubOverlay[i], 0, 255, LWA_ALPHA);
+            SetLayeredWindowAttributes(m_hSubOverlay[i], RGB(0, 0, 0), 255, LWA_COLORKEY);
             SendMessage(m_hSubOverlay[i], WM_SETFONT, (WPARAM)m_hSubFont, TRUE);
         }
     }
+}
+
+HFONT VideoPlayerGUI::GetSubFont(int fontSize) {
+    if (fontSize <= 0) fontSize = 22;
+    double dpi = GetDpiScale(g_hMainWnd);
+    int pixelHeight = (int)(-fontSize * dpi);
+
+    auto it = m_subFontCache.find(pixelHeight);
+    if (it != m_subFontCache.end())
+        return it->second;
+
+    HFONT hFont = CreateFontW(pixelHeight, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Segoe UI");
+    m_subFontCache[pixelHeight] = hFont;
+    return hFont;
 }
 
 void VideoPlayerGUI::HideAllSubOverlays() {
@@ -1814,7 +1833,7 @@ void VideoPlayerGUI::HideAllSubOverlays() {
 void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     if (m_subsHidden)
         return;
-    auto entries = m_player.GetActiveSubtitles(posSeconds);
+    m_player.GetActiveSubtitles(posSeconds, m_subEntries);
 
     RECT videoRC = {};
     if (g_hVideoArea)
@@ -1839,10 +1858,10 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     std::vector<int> withPos;
     std::vector<int> withoutPos;
 
-    for (int i = 0; i < (int)entries.size(); ++i) {
-        if (entries[i].text.empty())
+    for (int i = 0; i < (int)m_subEntries.size(); ++i) {
+        if (m_subEntries[i].text.empty())
             continue;
-        if (entries[i].posX >= 0 && entries[i].posY >= 0)
+        if (m_subEntries[i].posX >= 0 && m_subEntries[i].posY >= 0)
             withPos.push_back(i);
         else
             withoutPos.push_back(i);
@@ -1852,10 +1871,10 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     for (int idx : withPos) {
         if (used >= MAX_SUB_OVERLAYS)
             break;
-        const auto& e = entries[idx];
+        const auto& e = m_subEntries[idx];
 
         HDC hdc = GetDC(m_hSubOverlay[used]);
-        HGDIOBJ oldFont = SelectObject(hdc, m_hSubFont);
+        HGDIOBJ oldFont = SelectObject(hdc, GetSubFont(e.fontSize));
 
         const wchar_t* text = e.text.c_str();
         RECT rcCalc = {0, 0, 800, 200};
@@ -1879,9 +1898,7 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
         SetWindowPos(m_hSubOverlay[used], HWND_TOPMOST, posX, posY, textW, textH, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
         RECT rcPaint = {0, 0, textW, textH};
-        HBRUSH hbrBg = CreateSolidBrush(RGB(0, 0, 0));
-        FillRect(hdc, &rcPaint, hbrBg);
-        DeleteObject(hbrBg);
+        FillRect(hdc, &rcPaint, (HBRUSH)GetStockObject(BLACK_BRUSH));
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, RGB(255, 255, 255));
         DrawTextW(hdc, text, -1, &rcPaint, DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
@@ -1899,10 +1916,10 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     for (int idx : withoutPos) {
         if (used >= MAX_SUB_OVERLAYS)
             break;
-        const auto& e = entries[idx];
+        const auto& e = m_subEntries[idx];
 
         HDC hdc = GetDC(m_hSubOverlay[used]);
-        HGDIOBJ oldFont = SelectObject(hdc, m_hSubFont);
+        HGDIOBJ oldFont = SelectObject(hdc, GetSubFont(e.fontSize));
 
         const wchar_t* text = e.text.c_str();
         RECT rcCalc = {0, 0, 800, 200};
@@ -1947,17 +1964,19 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
         }
 
         // Clamp to video area
-        if (posX < vidX) posX = vidX;
-        if (posY < vidY) posY = vidY;
-        if (posX + textW > vidX + vidW) posX = vidX + vidW - textW;
-        if (posY + textH > vidY + vidH) posY = vidY + vidH - textH;
+        if (posX < vidX)
+            posX = vidX;
+        if (posY < vidY)
+            posY = vidY;
+        if (posX + textW > vidX + vidW)
+            posX = vidX + vidW - textW;
+        if (posY + textH > vidY + vidH)
+            posY = vidY + vidH - textH;
 
         SetWindowPos(m_hSubOverlay[used], HWND_TOPMOST, posX, posY, textW, textH, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
         RECT rcPaint = {0, 0, textW, textH};
-        HBRUSH hbrBg = CreateSolidBrush(RGB(0, 0, 0));
-        FillRect(hdc, &rcPaint, hbrBg);
-        DeleteObject(hbrBg);
+        FillRect(hdc, &rcPaint, (HBRUSH)GetStockObject(BLACK_BRUSH));
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, RGB(255, 255, 255));
         DrawTextW(hdc, text, -1, &rcPaint, DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);

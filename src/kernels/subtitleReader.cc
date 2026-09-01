@@ -226,12 +226,28 @@ static int ExtractAnTag(const std::string& text) {
     return 0;
 }
 
+static int ExtractFsTag(const std::string& text) {
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t p = text.find("\\fs", pos);
+        if (p == std::string::npos)
+            return 0;
+        p += 3;
+        // check bukan \fscx \fscy \fsp
+        if (p < text.size() && text[p] != 'c' && text[p] != 'p' && text[p] >= '0' && text[p] <= '9')
+            return atoi(text.c_str() + p);
+        pos = p + 1;
+    }
+    return 0;
+}
+
 // Parse ASS dialogue — 2 format:
 // 1. Full: "Dialogue: Layer,Start,End,Style,Name,ML,MR,MV,Effect,Text"
 // 2. MKV:  "ReadOrder,Layer,Style,Name,ML,MR,MV,Effect,Text" (timestamps dari PTS)
 // Penting: text BISA mengandung koma (dalam \pos, \move, dll)
 static bool ParseASSDialogue(const std::string& line, double ptsSec, double& outStartSec, double& outEndSec,
-                             std::wstring& outText, double& outPosX, double& outPosY, int& outAlignment) {
+                             std::wstring& outText, double& outPosX, double& outPosY, int& outAlignment,
+                             int& outFontSize) {
     bool isFullFormat = (line.compare(0, 9, "Dialogue:") == 0);
     int textAfterComma = isFullFormat ? 9 : 8; // text starts after Nth comma
     // Cari posisi koma ke-N
@@ -301,6 +317,11 @@ static bool ParseASSDialogue(const std::string& line, double ptsSec, double& out
     }
     // Extract \an alignment SEBELUM strip tags
     outAlignment = ExtractAnTag(textRaw);
+    outFontSize = ExtractFsTag(textRaw);
+    // Debug: log entries dengan font size != 0
+    if (outFontSize > 0) {
+        VSubLog(L"[VIDI] Sub: \\fs%d raw=[%hs]", outFontSize, textRaw.c_str());
+    }
     outText = StripASSTags(textRaw.c_str());
     return !outText.empty();
 }
@@ -617,9 +638,10 @@ void SubtitleReader::DetectAndBuildInOnePass() {
         std::wstring text;
         double posX = -1, posY = -1;
         int alignment = 0;
+        int fontSize = 0;
         double startSec = ptsSec, endSec = ptsSec + durSec;
 
-        if (ParseASSDialogue(raw.data, ptsSec, startSec, endSec, text, posX, posY, alignment)) {
+        if (ParseASSDialogue(raw.data, ptsSec, startSec, endSec, text, posX, posY, alignment, fontSize)) {
             if (durSec > 0)
                 withDuration++;
         } else {
@@ -653,6 +675,7 @@ void SubtitleReader::DetectAndBuildInOnePass() {
         entry.posX = posX;
         entry.posY = posY;
         entry.alignment = alignment;
+        entry.fontSize = fontSize;
         m_subtitleIndex.push_back(entry);
     }
 
@@ -676,8 +699,35 @@ void SubtitleReader::DetectAndBuildInOnePass() {
         if (cur.endSeconds - cur.startSeconds > 8.0)
             cur.endSeconds = cur.startSeconds + 7.0;
     }
+
     if (!m_subtitleIndex.empty() && m_subtitleIndex.back().endSeconds <= m_subtitleIndex.back().startSeconds)
         m_subtitleIndex.back().endSeconds = m_subtitleIndex.back().startSeconds + 3.0;
+
+    // Deduplikasi: hapus entry yang punya posisi + teks sama (karaoke highlight/base duplikat, clip animation duplikat)
+    {
+        int beforeDedup = (int)m_subtitleIndex.size();
+        std::vector<SubtitleEntry> deduped;
+        deduped.reserve(m_subtitleIndex.size());
+        for (auto& e : m_subtitleIndex) {
+            bool isDup = false;
+            if (e.posX >= 0 && e.posY >= 0 && !e.text.empty()) {
+                for (const auto& d : deduped) {
+                    if (d.posX >= 0 && d.posY >= 0 && d.text == e.text) {
+                        double dx = fabs(d.posX - e.posX);
+                        double dy = fabs(d.posY - e.posY);
+                        if (dx < 2.0 && dy < 2.0) {
+                            isDup = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!isDup)
+                deduped.push_back(std::move(e));
+        }
+        VSubLog(L"[VIDI] Sub: dedup %d -> %d entries", beforeDedup, (int)deduped.size());
+        m_subtitleIndex = std::move(deduped);
+    }
 
     VSubLog(L"[VIDI] Sub: %d entries built (%d with MKV duration), %d skipped", (int)m_subtitleIndex.size(),
             withDuration, skipped);
@@ -711,10 +761,10 @@ std::wstring SubtitleReader::GetSubtitleAt(double timeSeconds) {
 // For multi-line ASS (karaoke, signs, positioned text)
 // ============================================================
 
-std::vector<SubtitleEntry> SubtitleReader::GetActiveSubtitles(double timeSeconds) {
-    std::vector<SubtitleEntry> result;
+void SubtitleReader::GetActiveSubtitles(double timeSeconds, std::vector<SubtitleEntry>& out) {
+    out.clear();
     if (m_subtitleIndex.empty())
-        return result;
+        return;
 
     // Binary search to find first entry that could be active
     int lo = 0, hi = (int)m_subtitleIndex.size() - 1;
@@ -739,9 +789,8 @@ std::vector<SubtitleEntry> SubtitleReader::GetActiveSubtitles(double timeSeconds
         if (e.startSeconds > timeSeconds)
             break;
         if (e.endSeconds >= timeSeconds)
-            result.push_back(e);
+            out.push_back(e);
     }
-    return result;
 }
 
 // ============================================================
