@@ -14,6 +14,8 @@ set(SOURCES
     src/main.cc
     src/gui/gui.cc
     src/kernels/directShowPlayer.cc
+    src/kernels/subtitleReader.cc
+    src/kernels/assRenderer.cc
     src/app.rc
 )
 
@@ -24,6 +26,22 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     src
     src/gui
     src/kernels
+)
+
+find_library(LIBASS_LIBRARY NAMES ass libass
+    HINTS "$ENV{VCPKG_ROOT}/installed/x64-windows/lib"
+)
+find_path(LIBASS_INCLUDE_DIR NAMES ass/ass.h
+    HINTS "$ENV{VCPKG_ROOT}/installed/x64-windows/include"
+)
+if(NOT LIBASS_LIBRARY OR NOT LIBASS_INCLUDE_DIR)
+    message(FATAL_ERROR "libass not found. Set VCPKG_ROOT env var.")
+endif()
+add_library(libass::libass SHARED IMPORTED)
+set_target_properties(libass::libass PROPERTIES
+    IMPORTED_IMPLIB "${LIBASS_LIBRARY}"
+    IMPORTED_LOCATION "$ENV{VCPKG_ROOT}/installed/x64-windows/bin/ass-9.dll"
+    INTERFACE_INCLUDE_DIRECTORIES "${LIBASS_INCLUDE_DIR}"
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -37,6 +55,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     uxtheme
     wtsapi32
     dwmapi
+    libass::libass
 )
 
 # Manifest di-embed manual lewat src/app.rc (RT_MANIFEST) -> matikan
@@ -60,11 +79,19 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         $<TARGET_FILE_DIR:${PROJECT_NAME}>/filters
 )
 
+# Salin ass-9.dll (libass runtime) ke output directory
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_PROPERTY:libass::libass,IMPORTED_LOCATION>"
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>
+)
+
 # ==============================================================================
 # KONFIGURASI PACKAGING & INSTALLER (NSIS)
 # ==============================================================================
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
+install(FILES "$<TARGET_PROPERTY:libass::libass,IMPORTED_LOCATION>" DESTINATION bin)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/ DESTINATION bin/assets)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/filters/ DESTINATION bin/filters)
 
