@@ -35,6 +35,9 @@ class DirectShowPlayer {
     std::atomic<int> m_dspFmt;    // 0=passthrough, 1=int16, 2=float32
     bool m_comInitialized;
     SubtitleReader m_subReader;
+    HANDLE m_hSubThread;
+    std::wstring m_subLoadPath;
+    std::atomic<uint32_t> m_mediaReadyGen{0};
 
     bool m_graphBuilt;
 
@@ -45,6 +48,7 @@ class DirectShowPlayer {
     bool RouteAudioThroughGain(IPin* pAudioOut); // pin audio -> grabber -> renderer
     void TeardownGainFilter();                   // cabut grabber dr graph + release
     static long LinearToDShowVolume(float linearVol);
+    static DWORD WINAPI SubtitleLoadThreadProc(LPVOID lpParam);
     IBaseFilter* FindFilterByName(const wchar_t* name);
     IPin* FindUnconnectedPin(IBaseFilter* pFilter, PIN_DIRECTION dir);
     GUID GetPinMajorType(IPin* pPin);
@@ -70,13 +74,12 @@ class DirectShowPlayer {
     void ShowVideoWindow();
     void GetNativeVideoSize(int& width, int& height);
     SubtitleReader& GetSubtitleReader() { return m_subReader; }
-    std::wstring GetSubtitleText(double timeSeconds) { return m_subReader.GetSubtitleAt(timeSeconds); }
-    void GetActiveSubtitles(double timeSeconds, std::vector<SubtitleEntry>& out) { m_subReader.GetActiveSubtitles(timeSeconds, out); }
-    double GetPlayResX() const { return m_subReader.GetPlayResX(); }
-    double GetPlayResY() const { return m_subReader.GetPlayResY(); }
     HWND GetNotifyWnd() const { return m_hNotifyWnd; }
     void HandleGraphEvent();
     void SetDspGain(float gain);
+    bool IsSubtitlesLoaded() const { return m_subReader.IsLoaded(); }
+    uint32_t GetMediaReadyGen() const { return m_mediaReadyGen.load(); }
+    void WaitForSubtitles();
 };
 } // namespace kernelPlayerVidi
 

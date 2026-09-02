@@ -3,6 +3,7 @@
 #include <wtsapi32.h>
 #include <dwmapi.h>
 #include <string>
+#include <functional>
 #include <cmath>
 
 namespace guiVidi {
@@ -442,8 +443,15 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         }
         return 0;
     case WM_APP_MEDIA_READY:
-        if (self)
-            self->OnMediaReady(); // durasi trackbar + fit window ke video
+        if (self) {
+            uint32_t gen = (uint32_t)wParam;
+            if (gen == self->m_player.GetMediaReadyGen()) {
+                self->m_lastMediaReadyGen = gen;
+                self->OnMediaReady();
+            } else {
+                OutputDebugStringW(L"[VIDI] Ignoring stale WM_APP_MEDIA_READY\n");
+            }
+        }
         return 0;
 
     case WM_ACTIVATEAPP:
@@ -534,6 +542,12 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         for (auto& [h, f] : self->m_subFontCache)
             DeleteObject(f);
         self->m_subFontCache.clear();
+        for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
+            if (self->m_hSubBmp[i]) {
+                DeleteObject(self->m_hSubBmp[i]);
+                self->m_hSubBmp[i] = nullptr;
+            }
+        }
         WTSUnRegisterSessionNotification(hwnd);
         KillTimer(hwnd, ID_TIMER_UPDATE);
         PostQuitMessage(0);
@@ -1028,7 +1042,6 @@ void VideoPlayerGUI::OnMediaReady() {
     int range = static_cast<int>(dur * 10.0);
     if (range < 100)
         range = 100;
-
     m_progressRangeMax = range;
     SendMessage(g_hProgress, TBM_SETRANGEMIN, TRUE, 0);
     SendMessage(g_hProgress, TBM_SETRANGEMAX, TRUE, m_progressRangeMax);
@@ -1036,8 +1049,6 @@ void VideoPlayerGUI::OnMediaReady() {
     UpdateTimeLabel(0.0, dur);
     FitWindowToVideo();
 
-    // Frame pertama langsung dipaksa render, baru video ditampilkan
-    m_player.ForceFrameRefresh();
     m_player.ShowVideoWindow();
 }
 
@@ -1532,6 +1543,8 @@ void VideoPlayerGUI::SetPlayPauseUI(bool playing) {
 }
 
 void VideoPlayerGUI::OpenFileDialog() {
+    HideAllSubOverlays();
+
     wchar_t filePath[MAX_PATH] = {0};
     OPENFILENAME ofn = {};
 
@@ -1559,6 +1572,7 @@ void VideoPlayerGUI::OpenFileDialog() {
     if (m_player.OpenFile(filePath)) {
         m_player.Play();
         SetPlayPauseUI(true);
+        m_subsHidden = false;
     } else {
         MessageBox(g_hMainWnd, L"Gagal membuka file. Format mungkin tidak didukung.", L"Vidi", MB_OK | MB_ICONERROR);
     }
@@ -1795,45 +1809,42 @@ void VideoPlayerGUI::CreateSubtitleOverlay(HWND hwnd) {
         s_registered = true;
     }
 
-    for (int i = 0; i < MAX_SUB_OVERLAYS; ++i) {
+    for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
         m_hSubOverlay[i] =
             CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_NOACTIVATE, L"VidiSubOverlay",
                             L"", WS_POPUP, 0, 0, 100, 40, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
-        if (m_hSubOverlay[i]) {
-            SetLayeredWindowAttributes(m_hSubOverlay[i], RGB(0, 0, 0), 255, LWA_COLORKEY);
-            SendMessage(m_hSubOverlay[i], WM_SETFONT, (WPARAM)m_hSubFont, TRUE);
-        }
+        m_hSubBmp[i] = nullptr;
+        m_pSubBmpBits[i] = nullptr;
+        m_subBmpW[i] = 0;
+        m_subBmpH[i] = 0;
     }
-}
-
-HFONT VideoPlayerGUI::GetSubFont(int fontSize) {
-    if (fontSize <= 0) fontSize = 22;
-    double dpi = GetDpiScale(g_hMainWnd);
-    int pixelHeight = (int)(-fontSize * dpi);
-
-    auto it = m_subFontCache.find(pixelHeight);
-    if (it != m_subFontCache.end())
-        return it->second;
-
-    HFONT hFont = CreateFontW(pixelHeight, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Segoe UI");
-    m_subFontCache[pixelHeight] = hFont;
-    return hFont;
 }
 
 void VideoPlayerGUI::HideAllSubOverlays() {
     m_subsHidden = true;
-    for (int i = 0; i < MAX_SUB_OVERLAYS; ++i) {
+    m_lastSubContentHash = 0;
+    for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
         if (m_hSubOverlay[i])
             ShowWindow(m_hSubOverlay[i], SW_HIDE);
+        if (m_hSubBmp[i]) {
+            DeleteObject(m_hSubBmp[i]);
+            m_hSubBmp[i] = nullptr;
+            m_pSubBmpBits[i] = nullptr;
+            m_subBmpW[i] = 0;
+            m_subBmpH[i] = 0;
+        }
     }
 }
 
 void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     if (m_subsHidden)
         return;
-    m_player.GetActiveSubtitles(posSeconds, m_subEntries);
+    if (!m_player.IsSubtitlesLoaded()) {
+        static int skipCount = 0;
+        if (++skipCount % 300 == 1)
+            OutputDebugStringW(L"[VIDI] gui: UpdateSub skipped (not loaded)\n");
+        return;
+    }
 
     RECT videoRC = {};
     if (g_hVideoArea)
@@ -1847,149 +1858,125 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     int vidX = tl.x, vidY = tl.y;
     int vidW = br.x - tl.x, vidH = br.y - tl.y;
 
-    double playResX = m_player.GetPlayResX();
-    double playResY = m_player.GetPlayResY();
-    if (playResX <= 0)
-        playResX = 1280;
-    if (playResY <= 0)
-        playResY = 720;
+    int nativeW = 0, nativeH = 0;
+    m_player.GetNativeVideoSize(nativeW, nativeH);
+    double scaleX = (nativeW > 0) ? (double)vidW / nativeW : 1.0;
+    double scaleY = (nativeH > 0) ? (double)vidH / nativeH : 1.0;
+    double scale = (scaleX < scaleY) ? scaleX : scaleY;
+    int contentW = (int)(nativeW * scale);
+    int contentH = (int)(nativeH * scale);
+    int contentX = vidX + (vidW - contentW) / 2;
+    int contentY = vidY + (vidH - contentH) / 2;
 
-    double dpi = GetDpiScale(g_hMainWnd);
-    std::vector<int> withPos;
-    std::vector<int> withoutPos;
-
-    for (int i = 0; i < (int)m_subEntries.size(); ++i) {
-        if (m_subEntries[i].text.empty())
-            continue;
-        if (m_subEntries[i].posX >= 0 && m_subEntries[i].posY >= 0)
-            withPos.push_back(i);
-        else
-            withoutPos.push_back(i);
-    }
-    int used = 0;
-    // Render subtitles with explicit \pos() — each keeps its own position
-    for (int idx : withPos) {
-        if (used >= MAX_SUB_OVERLAYS)
-            break;
-        const auto& e = m_subEntries[idx];
-
-        HDC hdc = GetDC(m_hSubOverlay[used]);
-        HGDIOBJ oldFont = SelectObject(hdc, GetSubFont(e.fontSize));
-
-        const wchar_t* text = e.text.c_str();
-        RECT rcCalc = {0, 0, 800, 200};
-        DrawTextW(hdc, text, -1, &rcCalc, DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
-
-        int textW = rcCalc.right + (int)(40 * dpi);
-        int textH = rcCalc.bottom + (int)(10 * dpi);
-
-        int posX = vidX + (int)((e.posX / playResX) * vidW) - textW / 2;
-        int posY = vidY + (int)((e.posY / playResY) * vidH) - textH / 2;
-
-        if (posX < vidX)
-            posX = vidX;
-        if (posY < vidY)
-            posY = vidY;
-        if (posX + textW > vidX + vidW)
-            posX = vidX + vidW - textW;
-        if (posY + textH > vidY + vidH)
-            posY = vidY + vidH - textH;
-
-        SetWindowPos(m_hSubOverlay[used], HWND_TOPMOST, posX, posY, textW, textH, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-
-        RECT rcPaint = {0, 0, textW, textH};
-        FillRect(hdc, &rcPaint, (HBRUSH)GetStockObject(BLACK_BRUSH));
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, RGB(255, 255, 255));
-        DrawTextW(hdc, text, -1, &rcPaint, DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
-
-        SelectObject(hdc, oldFont);
-        ReleaseDC(m_hSubOverlay[used], hdc);
-        used++;
+    if (contentW <= 0 || contentH <= 0) {
+        ShowWindow(m_hSubOverlay[0], SW_HIDE);
+        return;
     }
 
-    // Render subtitles without \pos() — group by \an alignment, stack per group
-    // \an: 1=BL 2=BC 3=BR 4=ML 5=MC 6=MR 7=TL 8=TC 9=TR
-    // Track stack offset per alignment group
-    int stackByAlignment[10] = {}; // index 0 unused, 1-9 for \an values
+    // Set libass frame size so it renders at screen resolution
+    m_player.GetSubtitleReader().GetAssRenderer().SetFrameSize(contentW, contentH);
 
-    for (int idx : withoutPos) {
-        if (used >= MAX_SUB_OVERLAYS)
-            break;
-        const auto& e = m_subEntries[idx];
+    auto bitmaps = m_player.GetSubtitleReader().RenderFrame(posSeconds);
 
-        HDC hdc = GetDC(m_hSubOverlay[used]);
-        HGDIOBJ oldFont = SelectObject(hdc, GetSubFont(e.fontSize));
+    if (bitmaps.empty()) {
+        ShowWindow(m_hSubOverlay[0], SW_HIDE);
+        return;
+    }
 
-        const wchar_t* text = e.text.c_str();
-        RECT rcCalc = {0, 0, 800, 200};
-        DrawTextW(hdc, text, -1, &rcCalc, DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
+    size_t contentHash = bitmaps.size();
+    for (auto& b : bitmaps) {
+        contentHash ^= std::hash<int>{}(b.x) + 0x9e3779b9 + (contentHash << 6) + (contentHash >> 2);
+        contentHash ^= std::hash<int>{}(b.y) + 0x9e3779b9 + (contentHash << 6) + (contentHash >> 2);
+        contentHash ^= std::hash<int>{}(b.width) + 0x9e3779b9 + (contentHash << 6) + (contentHash >> 2);
+        contentHash ^= std::hash<int>{}(b.height) + 0x9e3779b9 + (contentHash << 6) + (contentHash >> 2);
+        contentHash ^= std::hash<uint32_t>{}(b.color) + 0x9e3779b9 + (contentHash << 6) + (contentHash >> 2);
+    }
 
-        int textW = rcCalc.right + (int)(40 * dpi);
-        int textH = rcCalc.bottom + (int)(10 * dpi);
+    if (m_hSubBmp[0] && m_subBmpW[0] == contentW && m_subBmpH[0] == contentH && m_lastSubContentHash == contentHash) {
+        return;
+    }
 
-        int maxW = vidW - (int)(60 * dpi);
-        if (textW > maxW)
-            textW = maxW;
+    if (m_hSubBmp[0] && (m_subBmpW[0] != contentW || m_subBmpH[0] != contentH)) {
+        DeleteObject(m_hSubBmp[0]);
+        m_hSubBmp[0] = nullptr;
+    }
+    if (!m_hSubBmp[0]) {
+        BITMAPINFO bmi = {};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = contentW;
+        bmi.bmiHeader.biHeight = -contentH;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        m_hSubBmp[0] = CreateDIBSection(NULL, &bmi, DIB_RGB_COLORS, &m_pSubBmpBits[0], nullptr, 0);
+        m_subBmpW[0] = contentW;
+        m_subBmpH[0] = contentH;
+    }
 
-        int an = e.alignment;
-        if (an < 1 || an > 9)
-            an = 2; // default: bottom-center
+    if (!m_hSubBmp[0])
+        return;
 
-        int margin = (int)(30 * dpi);
-        int posX, posY;
+    memset(m_pSubBmpBits[0], 0, contentW * contentH * 4);
 
-        // Horizontal position based on alignment column
-        if (an == 1 || an == 4 || an == 7)
-            posX = vidX + margin; // left
-        else if (an == 3 || an == 6 || an == 9)
-            posX = vidX + vidW - textW - margin; // right
-        else
-            posX = vidX + (vidW - textW) / 2; // center
+    for (auto& b : bitmaps) {
+        uint32_t c = b.color;
+        BYTE srcA = (c >> 24) & 0xFF;
+        BYTE srcR = c & 0xFF;
+        BYTE srcG = (c >> 8) & 0xFF;
+        BYTE srcB = (c >> 16) & 0xFF;
 
-        // Vertical position based on alignment row + stack offset
-        int offset = stackByAlignment[an];
-        if (an >= 7) {
-            // Top row: stack downward from top
-            posY = vidY + margin + offset;
-            stackByAlignment[an] += textH + (int)(4 * dpi);
-        } else if (an >= 4) {
-            // Middle row: stack downward from middle
-            posY = vidY + vidH / 2 - textH / 2 + offset;
-            stackByAlignment[an] += textH + (int)(4 * dpi);
-        } else {
-            // Bottom row (1,2,3): stack upward from bottom
-            posY = vidY + vidH - textH - margin - offset;
-            stackByAlignment[an] += textH + (int)(4 * dpi);
+        // Bitmap positions from libass are already in frame size (content) coordinates
+        int dstX = b.x;
+        int dstY = b.y;
+
+        for (int y = 0; y < b.height; y++) {
+            for (int x = 0; x < b.width; x++) {
+                int dx = dstX + x;
+                int dy = dstY + y;
+                if (dx < 0 || dx >= contentW || dy < 0 || dy >= contentH)
+                    continue;
+
+                BYTE alpha = b.bitmap[y * b.width + x];
+                if (alpha == 0)
+                    continue;
+
+                BYTE finalA = (BYTE)((int)srcA * alpha / 255);
+                DWORD* dst = (DWORD*)m_pSubBmpBits[0] + dy * contentW + dx;
+
+                BYTE oldB = *dst & 0xFF;
+                BYTE oldG = (*dst >> 8) & 0xFF;
+                BYTE oldR = (*dst >> 16) & 0xFF;
+                BYTE oldA = (*dst >> 24) & 0xFF;
+
+                int invA = 255 - finalA;
+                BYTE newR = (BYTE)((srcR * finalA + oldR * invA) / 255);
+                BYTE newG = (BYTE)((srcG * finalA + oldG * invA) / 255);
+                BYTE newB = (BYTE)((srcB * finalA + oldB * invA) / 255);
+                BYTE newA = finalA + (BYTE)((int)oldA * invA / 255);
+                *dst = (newA << 24) | (newR << 16) | (newG << 8) | newB;
+            }
         }
-
-        // Clamp to video area
-        if (posX < vidX)
-            posX = vidX;
-        if (posY < vidY)
-            posY = vidY;
-        if (posX + textW > vidX + vidW)
-            posX = vidX + vidW - textW;
-        if (posY + textH > vidY + vidH)
-            posY = vidY + vidH - textH;
-
-        SetWindowPos(m_hSubOverlay[used], HWND_TOPMOST, posX, posY, textW, textH, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-
-        RECT rcPaint = {0, 0, textW, textH};
-        FillRect(hdc, &rcPaint, (HBRUSH)GetStockObject(BLACK_BRUSH));
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, RGB(255, 255, 255));
-        DrawTextW(hdc, text, -1, &rcPaint, DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
-
-        SelectObject(hdc, oldFont);
-        ReleaseDC(m_hSubOverlay[used], hdc);
-        used++;
     }
 
-    // Hide unused overlays
-    for (int i = used; i < MAX_SUB_OVERLAYS; ++i) {
-        ShowWindow(m_hSubOverlay[i], SW_HIDE);
-    }
+    HDC hdcScreen = GetDC(NULL);
+    HDC hMemDC = CreateCompatibleDC(hdcScreen);
+    HBITMAP hOld = (HBITMAP)SelectObject(hMemDC, m_hSubBmp[0]);
+
+    POINT ptDst = {contentX, contentY};
+    SIZE sizeWnd = {contentW, contentH};
+    POINT ptSrc = {0, 0};
+    BLENDFUNCTION blend = {};
+    blend.BlendOp = AC_SRC_OVER;
+    blend.SourceConstantAlpha = 255;
+    blend.AlphaFormat = AC_SRC_ALPHA;
+    UpdateLayeredWindow(m_hSubOverlay[0], hdcScreen, &ptDst, &sizeWnd, hMemDC, &ptSrc, 0, &blend, ULW_ALPHA);
+
+    SelectObject(hMemDC, hOld);
+    DeleteDC(hMemDC);
+    ShowWindow(m_hSubOverlay[0], SW_SHOW);
+    ReleaseDC(NULL, hdcScreen);
+
+    m_lastSubContentHash = contentHash;
 }
 
 // ==========================================

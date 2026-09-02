@@ -4,7 +4,9 @@
 #include <windows.h>
 #include <string>
 #include <vector>
+#include <atomic>
 #include "ffmpeg_dynload.hh"
+#include "assRenderer.hh"
 
 namespace kernelPlayerVidi {
 
@@ -14,16 +16,6 @@ struct SubtitleInfo {
     std::string title;
     int codecId;
     bool isTextBased;
-};
-
-struct SubtitleEntry {
-    double startSeconds;
-    double endSeconds;
-    std::wstring text;
-    double posX = -1; // from \pos(x,y), -1 = not specified
-    double posY = -1;
-    int alignment = 0; // \an tag: 1-9 (0 = tidak ada)
-    int fontSize = 0;  // default code (22)
 };
 
 class SubtitleReader {
@@ -37,19 +29,16 @@ class SubtitleReader {
     AVCodecContext* m_codecCtx;
     int m_subtitleStreamIndex;
     int m_subtitleCodecId;
-    int m_timeBaseDen;
-    int m_timeBaseNum;
 
     bool m_dllsLoaded;
     bool m_fileOpen;
-    double m_playResX = 0;
-    double m_playResY = 0;
+
+    AssRenderer m_assRenderer;
+    std::atomic<bool> m_loaded{false};
 
     bool LoadFFmpegDlls();
     void FreeFFmpegDlls();
     void FreeFile();
-    void DetectAndBuildInOnePass();
-    void BuildSubtitleIndex();
 
   public:
     SubtitleReader();
@@ -57,32 +46,28 @@ class SubtitleReader {
 
     bool Open(const wchar_t* videoPath);
     void Close();
-
+    bool IsLoaded() const {
+        return m_loaded;
+    }
     bool IsOpen() const {
         return m_fileOpen;
     }
+
     int GetSubtitleStreamCount() const;
     std::vector<SubtitleInfo> GetSubtitleStreams() const;
 
-    std::vector<SubtitleEntry> m_subtitleIndex;
-    std::wstring GetSubtitleAt(double timeSeconds);
-    void GetActiveSubtitles(double timeSeconds, std::vector<SubtitleEntry>& out);
-    double GetPlayResX() const {
-        return m_playResX;
-    }
-    double GetPlayResY() const {
-        return m_playResY;
+    AssRenderer& GetAssRenderer() {
+        return m_assRenderer;
     }
 
-    struct TimedText {
-        double startSeconds;
-        double endSeconds;
-        std::wstring text;
+    // Untuk gui.cc render
+    struct RenderedBitmap {
+        int x, y, width, height;
+        uint32_t color;
+        std::vector<uint8_t> bitmap;
     };
-
-    std::vector<TimedText> ReadSubtitles(double timeStart, double timeEnd);
+    std::vector<RenderedBitmap> RenderFrame(double timeSeconds);
 };
 
 } // namespace kernelPlayerVidi
-
-#endif // SUBTITLE_READER_HH
+#endif

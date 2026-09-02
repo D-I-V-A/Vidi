@@ -4,8 +4,87 @@
 #include <algorithm>
 #include <cstdarg>
 #include <cmath>
+#include <cstring>
+#include <vector>
 
 namespace kernelPlayerVidi {
+
+static std::string DecodeNameString(const uint8_t* strPtr, uint16_t length, uint16_t encodingID) {
+    std::string result;
+    if (encodingID == 1) {
+        for (int j = 0; j + 1 < length; j += 2) {
+            char c = (char)strPtr[j + 1];
+            if (c >= 32 && c < 127)
+                result += c;
+        }
+    } else {
+        for (int j = 0; j < length; j++) {
+            char c = (char)strPtr[j];
+            if (c >= 32 && c < 127)
+                result += c;
+        }
+    }
+    return result;
+}
+
+static std::vector<std::string> ExtractTtfFontNames(const uint8_t* data, int size) {
+    std::vector<std::string> names;
+    if (size < 12)
+        return names;
+    uint16_t numTables = (data[4] << 8) | data[5];
+    const uint8_t* nameTable = nullptr;
+    int nameTableLen = 0;
+    for (int i = 0; i < numTables; i++) {
+        int off = 12 + i * 16;
+        if (off + 16 > size)
+            break;
+        if (memcmp(data + off, "name", 4) == 0) {
+            nameTableLen = (data[off + 12] << 24) | (data[off + 13] << 16) | (data[off + 14] << 8) | data[off + 15];
+            int nameTableOffset =
+                (data[off + 8] << 24) | (data[off + 9] << 16) | (data[off + 10] << 8) | data[off + 11];
+            if (nameTableOffset + nameTableLen <= size)
+                nameTable = data + nameTableOffset;
+            break;
+        }
+    }
+    if (!nameTable || nameTableLen < 6)
+        return names;
+    uint16_t nameCount = (nameTable[2] << 8) | nameTable[3];
+    uint16_t stringOffset = (nameTable[4] << 8) | nameTable[5];
+    const uint8_t* stringStorage = nameTable + stringOffset;
+
+    auto tryAddName = [&](const std::string& n) {
+        if (!n.empty()) {
+            for (auto& existing : names)
+                if (existing == n) return;
+            names.push_back(n);
+        }
+    };
+
+    int targetIDs[] = {4, 1, 6, 2};
+    for (int tid : targetIDs) {
+        for (int i = 0; i < nameCount; i++) {
+            int recOff = 6 + i * 12;
+            if (recOff + 12 > nameTableLen)
+                break;
+            uint16_t platformID = (nameTable[recOff + 0] << 8) | nameTable[recOff + 1];
+            uint16_t encodingID = (nameTable[recOff + 2] << 8) | nameTable[recOff + 3];
+            uint16_t nameID     = (nameTable[recOff + 6] << 8) | nameTable[recOff + 7];
+            uint16_t strLength  = (nameTable[recOff + 8] << 8) | nameTable[recOff + 9];
+            uint16_t strOffset  = (nameTable[recOff + 10] << 8) | nameTable[recOff + 11];
+            if (nameID != tid)
+                continue;
+            if (platformID != 3 && platformID != 1)
+                continue;
+            const uint8_t* strPtr = stringStorage + strOffset;
+            if (strPtr + strLength > data + size || strLength == 0)
+                continue;
+            std::string decoded = DecodeNameString(strPtr, strLength, encodingID);
+            tryAddName(decoded);
+        }
+    }
+    return names;
+}
 
 // ============================================================
 // FFmpeg constants
@@ -152,209 +231,6 @@ static bool LooksLikeSubtitleText(const uint8_t* data, int size) {
     return (printable > checked * 7 / 10);
 }
 
-static std::wstring StripASSTags(const char* text) {
-    if (!text)
-        return L"";
-
-    std::string s(text);
-    std::string out;
-    out.reserve(s.size());
-
-    bool inTag = false;
-    for (size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '{')
-            inTag = true;
-        else if (s[i] == '}') {
-            inTag = false;
-            continue;
-        } else if (!inTag)
-            out += s[i];
-    }
-
-    std::wstring result = Utf8ToWide(out.c_str());
-    std::wstring::size_type pos = 0;
-    while ((pos = result.find(L"\\N", pos)) != std::wstring::npos) {
-        result.replace(pos, 2, L"\n");
-        pos += 1;
-    }
-    pos = 0;
-    while ((pos = result.find(L"\\n", pos)) != std::wstring::npos) {
-        result.replace(pos, 2, L"\n");
-        pos += 1;
-    }
-    return result;
-}
-
-// Parse \pos(x,y) dari text ASS — return true jika ditemukan
-static bool ExtractPosTag(const std::string& text, double& outX, double& outY) {
-    // Cari \pos( atau \pos ( di dalam {...} tags
-    size_t pos = 0;
-    while (pos < text.size()) {
-        size_t tagStart = text.find("\\pos(", pos);
-        size_t prefixLen = 5; // panjang "\pos("
-        if (tagStart == std::string::npos) {
-            tagStart = text.find("\\pos (", pos);
-            prefixLen = 6;
-            if (tagStart == std::string::npos)
-                return false;
-        }
-        size_t argsStart = tagStart + prefixLen;
-        size_t parenEnd = text.find(')', argsStart);
-        if (parenEnd == std::string::npos) {
-            pos = argsStart;
-            continue;
-        }
-        std::string args = text.substr(argsStart, parenEnd - argsStart);
-        // Coba tanpa spasi dulu (kasus paling umum)
-        if (sscanf_s(args.c_str(), "%lf,%lf", &outX, &outY) == 2)
-            return true;
-        // Fallback: handle spasi di sekitar koma
-        if (sscanf_s(args.c_str(), "%lf , %lf", &outX, &outY) == 2)
-            return true;
-        pos = parenEnd + 1;
-    }
-    return false;
-}
-
-static int ExtractAnTag(const std::string& text) {
-    size_t pos = text.find("\\an");
-    if (pos == std::string::npos)
-        return 0;
-    pos += 3;
-    if (pos < text.size() && text[pos] >= '1' && text[pos] <= '9')
-        return text[pos] - '0';
-    return 0;
-}
-
-static int ExtractFsTag(const std::string& text) {
-    size_t pos = 0;
-    while (pos < text.size()) {
-        size_t p = text.find("\\fs", pos);
-        if (p == std::string::npos)
-            return 0;
-        p += 3;
-        // check bukan \fscx \fscy \fsp
-        if (p < text.size() && text[p] != 'c' && text[p] != 'p' && text[p] >= '0' && text[p] <= '9')
-            return atoi(text.c_str() + p);
-        pos = p + 1;
-    }
-    return 0;
-}
-
-// Parse ASS dialogue — 2 format:
-// 1. Full: "Dialogue: Layer,Start,End,Style,Name,ML,MR,MV,Effect,Text"
-// 2. MKV:  "ReadOrder,Layer,Style,Name,ML,MR,MV,Effect,Text" (timestamps dari PTS)
-// Penting: text BISA mengandung koma (dalam \pos, \move, dll)
-static bool ParseASSDialogue(const std::string& line, double ptsSec, double& outStartSec, double& outEndSec,
-                             std::wstring& outText, double& outPosX, double& outPosY, int& outAlignment,
-                             int& outFontSize) {
-    bool isFullFormat = (line.compare(0, 9, "Dialogue:") == 0);
-    int textAfterComma = isFullFormat ? 9 : 8; // text starts after Nth comma
-    // Cari posisi koma ke-N
-    size_t pos = isFullFormat ? 10 : 0;
-    for (int i = 0; i < textAfterComma; ++i) {
-        pos = line.find(',', pos);
-        if (pos == std::string::npos)
-            return false;
-        pos++; // skip comma
-    }
-    // pos sekarang menunjuk awal text
-    if (pos >= line.size())
-        return false;
-
-    std::string textRaw = line.substr(pos);
-
-    if (isFullFormat) {
-        // Full ASS: parse Start dan End
-        size_t p1 = 10;
-        size_t c1 = line.find(',', p1);
-        if (c1 == std::string::npos)
-            return false;
-        size_t c2 = line.find(',', c1 + 1);
-        if (c2 == std::string::npos)
-            return false;
-        size_t c3 = line.find(',', c2 + 1);
-        if (c3 == std::string::npos)
-            return false;
-
-        std::string startStr = line.substr(c1 + 1, c2 - c1 - 1);
-        std::string endStr = line.substr(c2 + 1, c3 - c2 - 1);
-
-        auto parseTime = [](const std::string& s) -> double {
-            int h = 0, m = 0;
-            double sec = 0;
-            if (sscanf_s(s.c_str(), "%d:%d:%lf", &h, &m, &sec) >= 2)
-                return h * 3600.0 + m * 60.0 + sec;
-            return -1;
-        };
-
-        outStartSec = parseTime(startStr);
-        outEndSec = parseTime(endStr);
-        if (outStartSec < 0 || outEndSec < 0)
-            return false;
-    } else {
-        // MKV: timestamps dari packet PTS
-        outStartSec = ptsSec;
-        outEndSec = ptsSec + 5.0; // default, di-update oleh index sorting
-    }
-
-    // Extract \pos(x,y) SEBELUM strip tags
-    outPosX = -1;
-    outPosY = -1;
-    bool posFound = ExtractPosTag(textRaw, outPosX, outPosY);
-    // Debug: log semua entry yang mengandung \pos(
-    {
-        size_t hasPos = textRaw.find("\\pos(");
-        if (hasPos == std::string::npos)
-            hasPos = textRaw.find("\\pos (");
-        if (hasPos != std::string::npos) {
-            if (posFound) {
-                VSubLog(L"[VIDI] Sub: \\pos OK (%.0f,%.0f) raw=[%hs]", outPosX, outPosY, textRaw.c_str());
-            } else {
-                VSubLog(L"[VIDI] Sub: \\pos FAILED raw=[%hs]", textRaw.c_str());
-            }
-        }
-    }
-    // Extract \an alignment SEBELUM strip tags
-    outAlignment = ExtractAnTag(textRaw);
-    outFontSize = ExtractFsTag(textRaw);
-    // Debug: log entries dengan font size != 0
-    if (outFontSize > 0) {
-        VSubLog(L"[VIDI] Sub: \\fs%d raw=[%hs]", outFontSize, textRaw.c_str());
-    }
-    outText = StripASSTags(textRaw.c_str());
-    return !outText.empty();
-}
-
-static double DetectBestTimebase(int64_t maxPts) {
-    if (maxPts <= 0)
-        return 1000.0;
-    // MKV always uses nanoseconds for timestamps
-    // Verify: if maxPts / 1000000000 gives a reasonable time (1s - 14400s = 4 hours), use it
-    double t1e9 = (double)maxPts / 1000000000.0;
-    if (t1e9 >= 1.0 && t1e9 <= 14400.0) {
-        VSubLog(L"[VIDI] Sub: maxPts=%lld, using nanoseconds, maxTime=%.1fs", maxPts, t1e9);
-        return 1000000000.0;
-    }
-    // Fallback: try other common timebases
-    double candidates[] = {1.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0, 10000000.0, 100000000.0};
-    double bestDivisor = 1000000000.0;
-    double bestScore = 1e18;
-    for (double d : candidates) {
-        double t = (double)maxPts / d;
-        if (t >= 10.0 && t <= 14400.0) {
-            double score = fabs(t - 1200.0);
-            if (score < bestScore) {
-                bestScore = score;
-                bestDivisor = d;
-            }
-        }
-    }
-    VSubLog(L"[VIDI] Sub: maxPts=%lld, fallback divisor=%.0f, maxTime=%.1fs", maxPts, bestDivisor,
-            (double)maxPts / bestDivisor);
-    return bestDivisor;
-}
-
 // ============================================================
 // Load FFmpeg DLLs
 // ============================================================
@@ -381,6 +257,7 @@ bool SubtitleReader::LoadFFmpegDlls() {
     RES(m_hAvFormatDll, avformat_close_input);
     RES(m_hAvFormatDll, av_find_best_stream);
     RES(m_hAvFormatDll, av_read_frame);
+    RES(m_hAvFormatDll, av_seek_frame);
 
     RES(m_hAvCodecDll, avcodec_descriptor_name);
     RES(m_hAvCodecDll, avcodec_alloc_context3);
@@ -404,7 +281,9 @@ bool SubtitleReader::LoadFFmpegDlls() {
         m_ff.av_packet_unref = reinterpret_cast<fn_av_packet_unref>(GetProcAddress(m_hAvFormatDll, "av_packet_unref"));
 
     RES(m_hAvUtilDll, avsubtitle_free);
-
+    m_ff.av_dict_get = reinterpret_cast<fn_av_dict_get>(GetProcAddress(m_hAvUtilDll, "av_dict_get"));
+    if (!m_ff.av_dict_get)
+        m_ff.av_dict_get = reinterpret_cast<fn_av_dict_get>(GetProcAddress(m_hAvFormatDll, "av_dict_get"));
 #undef RES
 
     if (!m_ff.avformat_open_input || !m_ff.avformat_close_input || !m_ff.av_read_frame || !m_ff.av_packet_alloc) {
@@ -447,8 +326,6 @@ SubtitleReader::SubtitleReader()
       m_codecCtx(nullptr),
       m_subtitleStreamIndex(-1),
       m_subtitleCodecId(0),
-      m_timeBaseDen(1),
-      m_timeBaseNum(1000),
       m_dllsLoaded(false),
       m_fileOpen(false) {}
 
@@ -461,6 +338,7 @@ SubtitleReader::~SubtitleReader() {
 // ============================================================
 
 void SubtitleReader::FreeFile() {
+    m_loaded = false;
     if (m_codecCtx && m_ff.avcodec_free_context) {
         m_ff.avcodec_free_context(&m_codecCtx);
         m_codecCtx = nullptr;
@@ -469,10 +347,10 @@ void SubtitleReader::FreeFile() {
         m_ff.avformat_close_input(&m_fmtCtx);
         m_fmtCtx = nullptr;
     }
+    m_assRenderer.Shutdown();
     m_subtitleStreamIndex = -1;
     m_subtitleCodecId = 0;
     m_fileOpen = false;
-    m_subtitleIndex.clear();
 }
 
 void SubtitleReader::Close() {
@@ -489,6 +367,12 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
     if (!LoadFFmpegDlls())
         return false;
 
+    // 1. Init libass
+    if (!m_assRenderer.Initialize()) {
+        VSubLog(L"[VIDI] Sub: libass init failed");
+        return false;
+    }
+
     std::string utf8Path = WideToUtf8(videoPath);
     VSubLog(L"[VIDI] Sub: opening %s", videoPath);
 
@@ -500,297 +384,240 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
 
     ret = m_ff.avformat_find_stream_info(m_fmtCtx, nullptr);
     if (ret < 0) {
-        VSubLog(L"[VIDI] Sub: avformat_find_stream_info failed (err=%d)", ret);
+        VSubLog(L"[VIDI] Sub: avformat_find_stream_info failed");
         FreeFile();
         return false;
     }
 
-    VSubLog(L"[VIDI] Sub: detect + index in single pass...");
-    DetectAndBuildInOnePass();
-
-    // Default PlayRes for 720p anime BD (ASS \pos coordinates use this)
-    m_playResX = 1280;
-    m_playResY = 720;
-
-    if (m_subtitleIndex.empty()) {
-        VSubLog(L"[VIDI] Sub: no subtitle entries found");
-    } else {
-        VSubLog(L"[VIDI] Sub: %d entries, first at %.1fs, last at %.1fs", (int)m_subtitleIndex.size(),
-                m_subtitleIndex.front().startSeconds, m_subtitleIndex.back().startSeconds);
-    }
-
-    m_fileOpen = true;
-    return true;
-}
-
-// ============================================================
-// DetectAndBuildInOnePass — deteksi + index dalam satu pass
-// Tidak perlu av_seek_frame, tidak ada masalah stream position
-// ============================================================
-
-void SubtitleReader::DetectAndBuildInOnePass() {
-    if (!m_fmtCtx)
-        return;
+    // 2. Cari subtitle stream terbaik
+    int bestStream = -1;
+    int bestCount = 0;
 
     static const int MAX_STREAMS = 256;
     int textCounts[MAX_STREAMS] = {};
     int totalPackets[MAX_STREAMS] = {};
+    bool isAttachment[MAX_STREAMS] = {};
 
     AVPacketRaw* pkt = reinterpret_cast<AVPacketRaw*>(m_ff.av_packet_alloc());
-    if (!pkt)
-        return;
-
-    struct RawEntry {
-        int64_t pts;
-        int64_t duration;
-        int streamIndex;
-        std::string data;
-    };
-    std::vector<RawEntry> allEntries;
-    allEntries.reserve(4000);
-
     int scanned = 0;
-    while (scanned < 200000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pkt)) >= 0) {
+    while (scanned < 50000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pkt)) >= 0) {
         int si = pkt->stream_index;
         if (si >= 0 && si < MAX_STREAMS) {
             totalPackets[si]++;
-            if (pkt->data && pkt->size > 4 && LooksLikeSubtitleText(pkt->data, pkt->size)) {
+            if (pkt->data && pkt->size > 4 && LooksLikeSubtitleText(pkt->data, pkt->size))
                 textCounts[si]++;
-            }
         }
-
-        if (pkt->data && pkt->size > 0) {
-            std::string rawText(reinterpret_cast<char*>(pkt->data), pkt->size);
-            while (!rawText.empty() && rawText.back() == '\0')
-                rawText.pop_back();
-            if (!rawText.empty()) {
-                allEntries.push_back({pkt->pts, pkt->duration, si, std::move(rawText)});
-            }
-        }
-
         m_ff.av_packet_unref(reinterpret_cast<AVPacket*>(pkt));
         scanned++;
     }
 
-    VSubLog(L"[VIDI] Sub: scanned %d packets total", scanned);
-
-    int bestStream = -1;
-    int bestCount = 0;
     for (int i = 0; i < MAX_STREAMS; ++i) {
-        if (totalPackets[i] > 0 && textCounts[i] > 0) {
-            VSubLog(L"[VIDI] Sub: stream %d -> %d/%d text packets", i, textCounts[i], totalPackets[i]);
-            if (textCounts[i] > bestCount && textCounts[i] >= totalPackets[i] / 3) {
-                bestCount = textCounts[i];
-                bestStream = i;
-            }
+        if (textCounts[i] > bestCount && textCounts[i] >= totalPackets[i] / 3) {
+            bestCount = textCounts[i];
+            bestStream = i;
         }
     }
 
-    m_ff.av_packet_free(reinterpret_cast<AVPacket**>(&pkt));
-
     if (bestStream < 0) {
+        m_ff.av_packet_free(reinterpret_cast<AVPacket**>(&pkt));
         VSubLog(L"[VIDI] Sub: no subtitle stream detected");
-        return;
+        return false;
     }
 
     m_subtitleStreamIndex = bestStream;
-    VSubLog(L"[VIDI] Sub: detected stream %d (%d text packets)", bestStream, bestCount);
+    VSubLog(L"[VIDI] Sub: stream %d (%d text packets)", bestStream, bestCount);
 
-    std::vector<RawEntry> subEntries;
-    subEntries.reserve(bestCount);
-    for (auto& e : allEntries) {
-        if (e.streamIndex == bestStream) {
-            subEntries.push_back(std::move(e));
-        }
-    }
-    allEntries.clear();
-
-    if (subEntries.empty())
-        return;
-
-    int64_t maxPts = 0;
-    for (auto& e : subEntries) {
-        if (e.pts != AV_NOPTS_VALUE && e.pts > maxPts)
-            maxPts = e.pts;
-    }
-    double bestDivisor = DetectBestTimebase(maxPts);
-
-    // DEBUG: tampilkan isi 5 packet pertama
-    VSubLog(L"[VIDI] Sub: %d sub packets, showing first 5:", (int)subEntries.size());
-    for (int i = 0; i < 5 && i < (int)subEntries.size(); ++i) {
-        std::string preview = subEntries[i].data.substr(0, 120);
-        double durSec = (subEntries[i].duration > 0) ? (double)subEntries[i].duration / bestDivisor : 0;
-        VSubLog(L"[VIDI] Sub:   [%d] pts=%lld dur=%.2f data=[%hs]", i, subEntries[i].pts, durSec, preview.c_str());
-    }
-
-    m_subtitleIndex.clear();
-    int skipped = 0;
-    int withDuration = 0;
-    for (auto& raw : subEntries) {
-        double ptsSec = 0.0;
-        if (raw.pts != AV_NOPTS_VALUE && raw.pts != 0)
-            ptsSec = (double)raw.pts / bestDivisor;
-
-        double durSec = 0.0;
-        if (raw.duration > 0)
-            durSec = (double)raw.duration / bestDivisor;
-
-        std::wstring text;
-        double posX = -1, posY = -1;
-        int alignment = 0;
-        int fontSize = 0;
-        double startSec = ptsSec, endSec = ptsSec + durSec;
-
-        if (ParseASSDialogue(raw.data, ptsSec, startSec, endSec, text, posX, posY, alignment, fontSize)) {
-            if (durSec > 0)
-                withDuration++;
-        } else {
-            skipped++;
-            continue;
-        }
-
-        if (text.empty())
-            continue;
-
-        // Smart duration heuristics — when MKV doesn't provide duration
-        if (durSec <= 0 || endSec <= startSec) {
-            double textLen = (double)text.length();
-            bool hasPos = (posX >= 0 && posY >= 0);
-
-            // Base duration by text length: ~15 chars/sec reading speed
-            double readDur = textLen / 15.0;
-            if (hasPos) {
-                // Signs/labels: shorter, 1.5-4s
-                endSec = startSec + max(1.5, min(4.0, readDur));
-            } else {
-                // Dialogue: 2-7s depending on length
-                endSec = startSec + max(2.0, min(7.0, readDur));
-            }
-        }
-
-        SubtitleEntry entry;
-        entry.startSeconds = startSec;
-        entry.endSeconds = endSec;
-        entry.text = text;
-        entry.posX = posX;
-        entry.posY = posY;
-        entry.alignment = alignment;
-        entry.fontSize = fontSize;
-        m_subtitleIndex.push_back(entry);
-    }
-
-    std::sort(m_subtitleIndex.begin(), m_subtitleIndex.end(),
-              [](const SubtitleEntry& a, const SubtitleEntry& b) { return a.startSeconds < b.startSeconds; });
-
-    // Post-sort: refine end times using next entry's start when gap is reasonable
-    for (size_t i = 0; i + 1 < m_subtitleIndex.size(); ++i) {
-        auto& cur = m_subtitleIndex[i];
-        const auto& next = m_subtitleIndex[i + 1];
-        double gap = next.startSeconds - cur.startSeconds;
-        double curDur = cur.endSeconds - cur.startSeconds;
-
-        // Only use next.start if:
-        // 1. Gap is reasonable (0.5s to 10s) — not too short (overlap), not too long (separate scenes)
-        // 2. Current heuristic duration is longer than the gap
-        if (gap > 0.3 && gap < 10.0 && curDur > gap) {
-            cur.endSeconds = next.startSeconds - 0.05;
-        }
-        // Cap any entry that's still absurdly long
-        if (cur.endSeconds - cur.startSeconds > 8.0)
-            cur.endSeconds = cur.startSeconds + 7.0;
-    }
-
-    if (!m_subtitleIndex.empty() && m_subtitleIndex.back().endSeconds <= m_subtitleIndex.back().startSeconds)
-        m_subtitleIndex.back().endSeconds = m_subtitleIndex.back().startSeconds + 3.0;
-
-    // Deduplikasi: hapus entry yang punya posisi + teks sama (karaoke highlight/base duplikat, clip animation duplikat)
+    // Detect attachment streams via codec_type
     {
-        int beforeDedup = (int)m_subtitleIndex.size();
-        std::vector<SubtitleEntry> deduped;
-        deduped.reserve(m_subtitleIndex.size());
-        for (auto& e : m_subtitleIndex) {
-            bool isDup = false;
-            if (e.posX >= 0 && e.posY >= 0 && !e.text.empty()) {
-                for (const auto& d : deduped) {
-                    if (d.posX >= 0 && d.posY >= 0 && d.text == e.text) {
-                        double dx = fabs(d.posX - e.posX);
-                        double dy = fabs(d.posY - e.posY);
-                        if (dx < 2.0 && dy < 2.0) {
-                            isDup = true;
-                            break;
-                        }
-                    }
+        auto fmtRaw2 = reinterpret_cast<AVFormatContextCompat*>(m_fmtCtx);
+        for (unsigned int si = 0; si < fmtRaw2->nb_streams && si < MAX_STREAMS; ++si) {
+            auto sRaw2 = reinterpret_cast<AVStreamCompat*>(fmtRaw2->streams[si]);
+            if (sRaw2 && sRaw2->codecpar && sRaw2->codecpar->codec_type == AVMEDIA_TYPE_ATTACHMENT)
+                isAttachment[si] = true;
+        }
+        int attCount = 0;
+        for (int i = 0; i < MAX_STREAMS; i++)
+            if (isAttachment[i])
+                attCount++;
+        VSubLog(L"[VIDI] Sub: found %d attachment streams", attCount);
+    }
+
+    // 3. Feed codec_private ke libass
+    //    MKV subtitle stream punya extradata = codec_private (ASS header)
+    //    Kita akses via compatible struct layouts
+    {
+        auto fmtRaw = reinterpret_cast<AVFormatContextCompat*>(m_fmtCtx);
+        if (bestStream >= 0 && bestStream < (int)fmtRaw->nb_streams && fmtRaw->streams) {
+            auto streamRaw = reinterpret_cast<AVStreamCompat*>(fmtRaw->streams[bestStream]);
+            if (streamRaw && streamRaw->codecpar) {
+                auto parRaw = streamRaw->codecpar;
+                if (parRaw->extradata && parRaw->extradata_size > 0) {
+                    m_assRenderer.LoadTrackFromMemory(reinterpret_cast<const char*>(parRaw->extradata),
+                                                      parRaw->extradata_size);
+                    VSubLog(L"[VIDI] Sub: loaded codec_private (%d bytes) into libass", parRaw->extradata_size);
+                } else {
+                    VSubLog(L"[VIDI] Sub: codec_private kosong, pakai default header");
+                    // Feed minimal default ASS header supaya libass tetap bisa render
+                    const char* defaultHeader =
+                        "[Script Info]\r\n"
+                        "ScriptType: v4.00+\r\n"
+                        "PlayResX: 1280\r\n"
+                        "PlayResY: 720\r\n"
+                        "WrapStyle: 0\r\n"
+                        "\r\n"
+                        "[V4+ Styles]\r\n"
+                        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+                        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
+                        "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\n"
+                        "Style: "
+                        "Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,2,2,2,10,"
+                        "10,10,1\r\n"
+                        "\r\n"
+                        "[Events]\r\n"
+                        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\n";
+                    m_assRenderer.LoadTrackFromMemory(defaultHeader, (int)strlen(defaultHeader));
                 }
             }
-            if (!isDup)
-                deduped.push_back(std::move(e));
-        }
-        VSubLog(L"[VIDI] Sub: dedup %d -> %d entries", beforeDedup, (int)deduped.size());
-        m_subtitleIndex = std::move(deduped);
-    }
-
-    VSubLog(L"[VIDI] Sub: %d entries built (%d with MKV duration), %d skipped", (int)m_subtitleIndex.size(),
-            withDuration, skipped);
-}
-
-// ============================================================
-// GetSubtitleAt — binary search
-// ============================================================
-
-std::wstring SubtitleReader::GetSubtitleAt(double timeSeconds) {
-    if (m_subtitleIndex.empty())
-        return L"";
-
-    int lo = 0, hi = (int)m_subtitleIndex.size() - 1;
-    while (lo <= hi) {
-        int mid = (lo + hi) / 2;
-        const auto& e = m_subtitleIndex[mid];
-        if (timeSeconds < e.startSeconds) {
-            hi = mid - 1;
-        } else if (timeSeconds > e.endSeconds) {
-            lo = mid + 1;
-        } else {
-            return e.text;
         }
     }
-    return L"";
-}
 
-// ============================================================
-// GetActiveSubtitles — return ALL entries active at timeSeconds
-// For multi-line ASS (karaoke, signs, positioned text)
-// ============================================================
+    // 4. Feed semua subtitle packets ke libass
+    if (m_ff.av_seek_frame)
+        m_ff.av_seek_frame(m_fmtCtx, -1, 0, 0);
 
-void SubtitleReader::GetActiveSubtitles(double timeSeconds, std::vector<SubtitleEntry>& out) {
-    out.clear();
-    if (m_subtitleIndex.empty())
-        return;
-
-    // Binary search to find first entry that could be active
-    int lo = 0, hi = (int)m_subtitleIndex.size() - 1;
-    int startIdx = 0;
-    while (lo <= hi) {
-        int mid = (lo + hi) / 2;
-        if (m_subtitleIndex[mid].endSeconds < timeSeconds) {
-            lo = mid + 1;
-        } else if (m_subtitleIndex[mid].startSeconds > timeSeconds) {
-            hi = mid - 1;
-        } else {
-            startIdx = mid;
-            break;
+    AVRational subTimeBase = {1, 1000000000};
+    {
+        auto fmtRawTb = reinterpret_cast<AVFormatContextCompat*>(m_fmtCtx);
+        if (bestStream >= 0 && bestStream < (int)fmtRawTb->nb_streams && fmtRawTb->streams) {
+            auto sRawTb = reinterpret_cast<AVStreamCompat*>(fmtRawTb->streams[bestStream]);
+            if (sRawTb)
+                subTimeBase = sRawTb->time_base;
         }
     }
-    if (lo > hi)
-        startIdx = lo;
+    VSubLog(L"[VIDI] Sub: time_base = %d/%d", subTimeBase.num, subTimeBase.den);
+    if (m_ff.av_seek_frame)
+        m_ff.av_seek_frame(m_fmtCtx, -1, 0, 0);
 
-    // Scan forward from startIdx to collect all active entries
-    for (int i = startIdx; i < (int)m_subtitleIndex.size(); ++i) {
-        const auto& e = m_subtitleIndex[i];
-        if (e.startSeconds > timeSeconds)
-            break;
-        if (e.endSeconds >= timeSeconds)
-            out.push_back(e);
+    double tbVal = (subTimeBase.den != 0) ? (double)subTimeBase.num / subTimeBase.den : 1e-9;
+
+    int fed = 0;
+    int fontsFed = 0;
+    scanned = 0;
+    while (scanned < 500000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pkt)) >= 0) {
+        int si = pkt->stream_index;
+        if (pkt->data && pkt->size > 0) {
+            if (si == bestStream) {
+                int dataSize = pkt->size;
+                while (dataSize > 0 && pkt->data[dataSize - 1] == '\0')
+                    dataSize--;
+
+                if (dataSize > 0) {
+                    long long timecodeMs = 0;
+                    if (pkt->pts != AV_NOPTS_VALUE && pkt->pts != 0) {
+                        timecodeMs = (long long)(pkt->pts * tbVal * 1000.0);
+                    }
+                    long long durationMs = 5000;
+                    if (pkt->duration > 0) {
+                        durationMs = (long long)(pkt->duration * tbVal * 1000.0);
+                    }
+                    if (durationMs <= 0)
+                        durationMs = 5000;
+
+                    m_assRenderer.ProcessChunk(reinterpret_cast<const char*>(pkt->data), dataSize, timecodeMs,
+                                               durationMs);
+                    fed++;
+                }
+            } else if (si >= 0 && si < MAX_STREAMS && isAttachment[si] && fontsFed < 100) {
+                const uint8_t* d = reinterpret_cast<const uint8_t*>(pkt->data);
+                std::vector<std::string> fontNames = ExtractTtfFontNames(d, pkt->size);
+                if (fontNames.empty())
+                    fontNames.push_back("ATTACHMENT_" + std::to_string(si));
+                for (auto& fn : fontNames) {
+                    m_assRenderer.AddFont(fn.c_str(), reinterpret_cast<const char*>(pkt->data), pkt->size);
+                }
+                fontsFed++;
+                if (fontsFed <= 5) {
+                    std::string nameList;
+                    for (size_t ni = 0; ni < fontNames.size(); ni++) {
+                        if (ni > 0) nameList += ", ";
+                        nameList += "'" + fontNames[ni] + "'";
+                    }
+                    VSubLog(L"[VIDI] Sub: loaded font [%hs] (%d bytes, stream %d)",
+                            nameList.c_str(), pkt->size, si);
+                }
+            }
+        }
+        m_ff.av_packet_unref(reinterpret_cast<AVPacket*>(pkt));
+        scanned++;
     }
+    m_ff.av_packet_free(reinterpret_cast<AVPacket**>(&pkt));
+    VSubLog(L"[VIDI] Sub: fed %d packets to libass", fed);
+
+    // Load fonts from attachment streams via codecpar->extradata
+    {
+        auto fmtRaw3 = reinterpret_cast<AVFormatContextCompat*>(m_fmtCtx);
+        fontsFed = 0;
+        for (unsigned int si = 0; si < fmtRaw3->nb_streams; ++si) {
+            if ((int)si == bestStream)
+                continue;
+            auto sRaw3 = reinterpret_cast<AVStreamCompat*>(fmtRaw3->streams[si]);
+            if (!sRaw3 || !sRaw3->codecpar)
+                continue;
+            if (sRaw3->codecpar->codec_type != AVMEDIA_TYPE_ATTACHMENT)
+                continue;
+            if (!sRaw3->codecpar->extradata || sRaw3->codecpar->extradata_size <= 0)
+                continue;
+
+            const uint8_t* d = sRaw3->codecpar->extradata;
+            int dsize = sRaw3->codecpar->extradata_size;
+            std::vector<std::string> fontNames = ExtractTtfFontNames(d, dsize);
+            if (fontNames.empty())
+                fontNames.push_back("ATTACHMENT_" + std::to_string(si));
+            for (auto& fn : fontNames) {
+                m_assRenderer.AddFont(fn.c_str(),
+                                      reinterpret_cast<const char*>(d), dsize);
+            }
+            fontsFed++;
+        }
+        VSubLog(L"[VIDI] Sub: %d font attachments loaded from extradata", fontsFed);
+    }
+
+    // Diagnostic: cek isi track
+    if (m_assRenderer.GetTrack()) {
+        VSubLog(L"[VIDI] Sub: track n_events=%d n_styles=%d", m_assRenderer.GetTrack()->n_events,
+                m_assRenderer.GetTrack()->n_styles);
+        if (m_assRenderer.GetTrack()->n_styles > 0 && m_assRenderer.GetTrack()->styles) {
+            auto& s = m_assRenderer.GetTrack()->styles[0];
+            VSubLog(L"[VIDI] Sub: style[0] FontName='%hs' FontSize=%.0f", s.FontName ? s.FontName : "?", s.FontSize);
+            // Log semua unique font names yang dipakai
+            for (int si = 0; si < m_assRenderer.GetTrack()->n_styles; si++) {
+                auto& st = m_assRenderer.GetTrack()->styles[si];
+                if (st.FontName)
+                    VSubLog(L"[VIDI] Sub:   style[%d] Font='%hs'", si, st.FontName);
+            }
+        }
+    }
+
+    // 7. Set frame size dari PlayRes yang terdeteksi di ASS header
+    VSubLog(L"[VIDI] Sub: setting frame size...");
+    int playResX = 1280, playResY = 720; // default
+    if (m_assRenderer.GetTrack()) {
+        if (m_assRenderer.GetTrack()->PlayResX > 0)
+            playResX = m_assRenderer.GetTrack()->PlayResX;
+        if (m_assRenderer.GetTrack()->PlayResY > 0)
+            playResY = m_assRenderer.GetTrack()->PlayResY;
+    }
+    m_assRenderer.SetFrameSize(playResX, playResY);
+    m_assRenderer.SetStorageSize(playResX, playResY);
+    VSubLog(L"[VIDI] Sub: setting fonts...");
+    m_assRenderer.SetFonts(L"Yu Gothic", L"Yu Gothic");
+    VSubLog(L"[VIDI] Sub: setting check readorder...");
+    m_assRenderer.SetCheckReadorder(false);
+    VSubLog(L"[VIDI] Sub: PlayRes %dx%d", playResX, playResY);
+
+    m_loaded = true;
+    m_fileOpen = true;
+    return true;
 }
 
 // ============================================================
@@ -818,20 +645,29 @@ std::vector<SubtitleInfo> SubtitleReader::GetSubtitleStreams() const {
     return result;
 }
 
-std::vector<SubtitleReader::TimedText> SubtitleReader::ReadSubtitles(double timeStart, double timeEnd) {
-    std::vector<TimedText> result;
-    for (const auto& e : m_subtitleIndex) {
-        if (e.endSeconds < timeStart)
-            continue;
-        if (e.startSeconds > timeEnd)
-            break;
-        TimedText tt;
-        tt.startSeconds = e.startSeconds;
-        tt.endSeconds = e.endSeconds;
-        tt.text = e.text;
-        result.push_back(tt);
+std::vector<SubtitleReader::RenderedBitmap> SubtitleReader::RenderFrame(double timeSeconds) {
+    std::vector<RenderedBitmap> result;
+    if (!m_loaded)
+        return result;
+
+    long long timeMs = (long long)(timeSeconds * 1000.0);
+    auto assImages = m_assRenderer.RenderFrame(timeMs);
+
+    for (auto& img : assImages) {
+        RenderedBitmap rb;
+        rb.x = img.x;
+        rb.y = img.y;
+        rb.width = img.width;
+        rb.height = img.height;
+        rb.color = img.color;
+        rb.bitmap = std::move(img.bitmap);
+        result.push_back(std::move(rb));
+    }
+    static double lastLogTime = -2.0;
+    if (timeSeconds - lastLogTime >= 2.0) {
+        VSubLog(L"[VIDI] Sub: RenderFrame(%.1fs -> %lld ms) => %d bitmaps", timeSeconds, timeMs, (int)result.size());
+        lastLogTime = timeSeconds;
     }
     return result;
 }
-
 } // namespace kernelPlayerVidi

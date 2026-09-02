@@ -177,7 +177,8 @@ DirectShowPlayer::DirectShowPlayer()
       m_hLavSplitterDll(nullptr),
       m_hLavVideoDll(nullptr),
       m_hLavAudioDll(nullptr),
-      m_hVSFilterDll(nullptr) {}
+      m_hVSFilterDll(nullptr),
+      m_hSubThread(nullptr) {}
 
 DirectShowPlayer::~DirectShowPlayer() {
     Shutdown();
@@ -221,10 +222,8 @@ bool DirectShowPlayer::Initialize(HWND hVideoWnd, HWND hNotifyWnd) {
         }
     }
 
-    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    if (FAILED(hr) && hr != RPC_E_CHANGED_MODE)
-        return false;
-    m_comInitialized = SUCCEEDED(hr);
+    // COM already initialized in WinMain — just mark it so we don't double-uninit
+    m_comInitialized = false;
     return true;
 }
 
@@ -713,6 +712,7 @@ IPin* DirectShowPlayer::FindUnconnectedPin(IBaseFilter* pFilter, PIN_DIRECTION d
 }
 
 bool DirectShowPlayer::OpenFile(const wchar_t* path) {
+    WaitForSubtitles();
     if (!CreateGraph())
         return false;
     VLog(L"[VIDI] ===== OpenFile: %s", path);
@@ -982,11 +982,35 @@ bool DirectShowPlayer::OpenFile(const wchar_t* path) {
     }
 
     Play();
-    m_subReader.Open(path);
-    VLog(L"[VIDI] SubtitleReader: %d stream(s) found", m_subReader.GetSubtitleStreamCount());
-    if (m_hNotifyWnd)
-        PostMessage(m_hNotifyWnd, WM_APP_MEDIA_READY, 0, 0);
+    // Load subtitles asynchronously — don't block main thread
+    m_subLoadPath = path;
+    m_mediaReadyGen++;  // invalidate stale WM_APP_MEDIA_READY from previous file
+    m_hSubThread = CreateThread(nullptr, 0, SubtitleLoadThreadProc, this, 0, nullptr);
+    VLog(L"[VIDI] Subtitle loading started in background thread");
     return true;
+}
+
+DWORD WINAPI DirectShowPlayer::SubtitleLoadThreadProc(LPVOID lpParam) {
+    auto* self = static_cast<DirectShowPlayer*>(lpParam);
+    uint32_t gen = self->m_mediaReadyGen.load();
+    self->m_subReader.Open(self->m_subLoadPath.c_str());
+    VLog(L"[VIDI] SubtitleReader: %d stream(s) found (bg thread)", self->m_subReader.GetSubtitleStreamCount());
+    VLog(L"[VIDI] m_hNotifyWnd=%p, posting WM_APP_MEDIA_READY (gen=%u)", (void*)self->m_hNotifyWnd, gen);
+    if (self->m_hNotifyWnd) {
+        BOOL ok = PostMessage(self->m_hNotifyWnd, WM_APP_MEDIA_READY, (WPARAM)gen, 0);
+        VLog(L"[VIDI] PostMessage result=%d, GetLastError=%d", (int)ok, (int)GetLastError());
+    } else {
+        VLog(L"[VIDI] m_hNotifyWnd is NULL! WM_APP_MEDIA_READY NOT posted!");
+    }
+    return 0;
+}
+
+void DirectShowPlayer::WaitForSubtitles() {
+    if (m_hSubThread) {
+        WaitForSingleObject(m_hSubThread, 5000);  // 5s timeout, prevent UI freeze
+        CloseHandle(m_hSubThread);
+        m_hSubThread = nullptr;
+    }
 }
 
 void DirectShowPlayer::Play() {
@@ -1144,6 +1168,7 @@ void DirectShowPlayer::HandleGraphEvent() {
 }
 
 void DirectShowPlayer::Shutdown() {
+    WaitForSubtitles();
     DestroyGraph();
     if (m_comInitialized) {
         CoUninitialize();

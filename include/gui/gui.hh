@@ -54,7 +54,6 @@ class VideoPlayerGUI {
     bool m_cursorHidden;
     bool m_wasMinimized;
     POINT m_lastCursor;
-    std::vector<kernelPlayerVidi::SubtitleEntry> m_subEntries;
     HWND m_hTimeTip;
     bool m_seekHot;
     int m_hotX;
@@ -70,12 +69,18 @@ class VideoPlayerGUI {
     DWORD m_lastVideoClickTick;
     short m_lastVideoClickX, m_lastVideoClickY;
 
-    static const int MAX_SUB_OVERLAYS = 64;
+    static const int MAX_SUB_OVERLAYS = 2;
     HWND m_hSubOverlay[MAX_SUB_OVERLAYS];
+    HBITMAP m_hSubBmp[2];
+    void* m_pSubBmpBits[2];
+    int m_subBmpW[2] = {};
+    int m_subBmpH[2] = {};
     HFONT m_hSubFont;
     std::map<int, HFONT> m_subFontCache;
     bool m_subsHidden;
-
+    int m_lastUsedOverlays = 0;
+    uint32_t m_lastMediaReadyGen = 0;
+    size_t m_lastSubContentHash = 0;
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void CreateMenuBar(HWND hwnd);
     void LayoutControls(int width, int height);
@@ -108,7 +113,6 @@ class VideoPlayerGUI {
     void RecoverVideo();
     void LayoutFullscreen(int width, int height);
     void CreateSubtitleOverlay(HWND hwnd);
-    HFONT GetSubFont(int fontSize);
     void UpdateSubtitleDisplays(double posSeconds);
     void HideAllSubOverlays();
     HACCEL CreatePlayerAccelTable();
@@ -181,6 +185,8 @@ class VideoPlayerGUI {
           m_lastVideoClickX(0),
           m_lastVideoClickY(0),
           m_hSubFont(nullptr),
+          m_hSubBmp{nullptr, nullptr},
+          m_pSubBmpBits{nullptr, nullptr},
           m_subsHidden(false),
           m_prevPlacement{sizeof(WINDOWPLACEMENT)} {
         for (int i = 0; i < MAX_SUB_OVERLAYS; ++i)
