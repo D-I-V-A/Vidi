@@ -25,7 +25,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - run: choco install nsis -y
+      - name: Install WiX Toolset
+        run: choco install wixtoolset -y
       - name: Install dependencies via vcpkg
         run: C:\vcpkg\vcpkg install
         shell: cmd
@@ -35,12 +36,12 @@ jobs:
           VCPKG_ROOT: C:\vcpkg
       - run: cmake --build build --config Release
       - name: Build Installer
-        run: cpack -C Release -G NSIS
+        run: cpack -C Release -G WIX
         working-directory: build
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/Vidi-*.exe
+          files: build/Vidi-*.msi
           tag_name: v0.2-alpha-${{ github.run_number }}
           name: Release v0.2-alpha (Build ${{ github.run_number }})
           draft: false

@@ -99,7 +99,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 )
 
 # ==============================================================================
-# KONFIGURASI PACKAGING & INSTALLER (NSIS)
+# KONFIGURASI PACKAGING & INSTALLER (WIX / MSI)
 # ==============================================================================
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
@@ -112,7 +112,7 @@ set(CPACK_PACKAGE_VENDOR "Vidi Developer")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION_FULL}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Vidi Video & Audio Player")
 
-set(CPACK_GENERATOR "NSIS")
-set(CPACK_NSIS_MODIFY_PATH ON)
+set(CPACK_GENERATOR "WIX")
+set(CPACK_WIX_UPGRADE_GUID "A1B2C3D4-E5F6-7890-ABCD-EF1234567890")
 
 include(CPack)
