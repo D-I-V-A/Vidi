@@ -111,7 +111,7 @@ setx VCPKG_ROOT "C:\vcpkg"
 ### 2. Install Dependencies
 
 ```bash
-C:\vcpkg\vcpkg install libass:x64-windows
+C:\vcpkg\vcpkg install
 ```
 
 ### 3. Build
