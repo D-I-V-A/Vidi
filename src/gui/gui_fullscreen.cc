@@ -51,8 +51,8 @@ void VideoPlayerGUI::EnterFullscreen() {
     GetClientRect(g_hMainWnd, &rc);
     {
         wchar_t dbg[256];
-        swprintf_s(dbg, L"[VIDI] EnterFullscreen AFTER resize client=%dx%d (monitor=%dx%d)\n",
-                   rc.right, rc.bottom, monW, monH);
+        swprintf_s(dbg, L"[VIDI] EnterFullscreen AFTER resize client=%dx%d (monitor=%dx%d)\n", rc.right, rc.bottom,
+                   monW, monH);
         OutputDebugStringW(dbg);
     }
     LayoutFullscreen(monW, monH);

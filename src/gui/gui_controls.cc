@@ -206,8 +206,10 @@ void VideoPlayerGUI::OnTimerTick() {
 
     double pos = m_player.GetPosition();
     int sliderPos = static_cast<int>((pos / dur) * m_progressRangeMax);
-    if (sliderPos < 0) sliderPos = 0;
-    if (sliderPos > m_progressRangeMax) sliderPos = m_progressRangeMax;
+    if (sliderPos < 0)
+        sliderPos = 0;
+    if (sliderPos > m_progressRangeMax)
+        sliderPos = m_progressRangeMax;
     SetProgressPos(sliderPos);
     UpdateTimeLabel(pos, dur);
 
@@ -463,9 +465,8 @@ void VideoPlayerGUI::CreateControls(HWND hwnd) {
     g_hVolPercent = CreateWindowW(L"STATIC", L"100%", WS_CHILD | SS_LEFT | SS_CENTERIMAGE, 0, 0, 40, 24, hwnd,
                                   (HMENU)IDC_VOL_PERCENT, nullptr, nullptr);
 
-    g_hTimeLabel = CreateWindowW(L"STATIC", L"--:-- / --:--",
-                                 WS_CHILD | SS_LEFT | SS_CENTERIMAGE,
-                                 0, 0, 150, 30, hwnd, (HMENU)IDC_TIME_LABEL, nullptr, nullptr);
+    g_hTimeLabel = CreateWindowW(L"STATIC", L"--:-- / --:--", WS_CHILD | SS_LEFT | SS_CENTERIMAGE, 0, 0, 150, 30, hwnd,
+                                 (HMENU)IDC_TIME_LABEL, nullptr, nullptr);
     SendMessage(g_hTimeLabel, WM_SETFONT, (WPARAM)m_hTimeFont, TRUE);
 
     HWND hCtrl = GetWindow(hwnd, GW_CHILD);

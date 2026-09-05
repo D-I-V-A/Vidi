@@ -277,8 +277,7 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
     case WM_APP_FS_DEACTIVATE:
         if (self && self->m_isFullscreen) {
             OutputDebugStringW(L"[VIDI] FS_DEACTIVATE -> HWND_NOTOPMOST\n");
-            SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER);
+            SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER);
         }
         return 0;
 
