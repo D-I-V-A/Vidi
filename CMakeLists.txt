@@ -90,10 +90,11 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         $<TARGET_FILE_DIR:${PROJECT_NAME}>/filters
 )
 
-# Salin ass-9.dll (libass runtime) ke output directory
+# Salin semua runtime DLL (libass + dependencies: harfbuzz, freetype, fribidi, dll)
+get_filename_component(VCPKG_BIN_DIR "${LIBASS_DLL}" DIRECTORY)
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_PROPERTY:libass::libass,IMPORTED_LOCATION>"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${VCPKG_BIN_DIR}"
         $<TARGET_FILE_DIR:${PROJECT_NAME}>
 )
 
@@ -102,7 +103,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 # ==============================================================================
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
-install(FILES "$<TARGET_PROPERTY:libass::libass,IMPORTED_LOCATION>" DESTINATION bin)
+install(DIRECTORY "${VCPKG_BIN_DIR}/" DESTINATION bin FILES_MATCHING PATTERN "*.dll")
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/ DESTINATION bin/assets)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/filters/ DESTINATION bin/filters)
 
