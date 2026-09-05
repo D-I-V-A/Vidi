@@ -26,8 +26,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: choco install nsis -y
-      - name: Install libass via vcpkg
-        run: C:\vcpkg\vcpkg install libass:x64-windows
+      - name: Install dependencies via vcpkg
+        run: C:\vcpkg\vcpkg install
         shell: cmd
       - name: Configure CMake
         run: cmake -B build

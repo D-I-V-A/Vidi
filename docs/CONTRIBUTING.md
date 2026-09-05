@@ -32,7 +32,7 @@ Terima kasih sudah tertarik untuk berkontribusi di Vidi! Berikut panduan untuk m
 
 3. **Install dependencies:**
    ```bash
-   C:\vcpkg\vcpkg install libass:x64-windows
+   C:\vcpkg\vcpkg install
    ```
 
 4. **Build:**
