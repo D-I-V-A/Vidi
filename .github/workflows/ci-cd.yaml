@@ -30,7 +30,7 @@ jobs:
         run: C:\vcpkg\vcpkg install
         shell: cmd
       - name: Configure CMake
-        run: cmake -B build
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
         env:
           VCPKG_ROOT: C:\vcpkg
       - run: cmake --build build --config Release
