@@ -41,13 +41,17 @@ find_library(LIBASS_LIBRARY NAMES ass libass
 find_path(LIBASS_INCLUDE_DIR NAMES ass/ass.h
     HINTS "$ENV{VCPKG_ROOT}/installed/x64-windows/include"
 )
-if(NOT LIBASS_LIBRARY OR NOT LIBASS_INCLUDE_DIR)
+find_file(LIBASS_DLL NAMES ass-9.dll
+    HINTS "$ENV{VCPKG_ROOT}/installed/x64-windows/bin"
+          "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/bin"
+)
+if(NOT LIBASS_LIBRARY OR NOT LIBASS_INCLUDE_DIR OR NOT LIBASS_DLL)
     message(FATAL_ERROR "libass not found. Set VCPKG_ROOT env var.")
 endif()
 add_library(libass::libass SHARED IMPORTED)
 set_target_properties(libass::libass PROPERTIES
     IMPORTED_IMPLIB "${LIBASS_LIBRARY}"
-    IMPORTED_LOCATION "$ENV{VCPKG_ROOT}/installed/x64-windows/bin/ass-9.dll"
+    IMPORTED_LOCATION "${LIBASS_DLL}"
     INTERFACE_INCLUDE_DIRECTORIES "${LIBASS_INCLUDE_DIR}"
 )
 
