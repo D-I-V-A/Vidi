@@ -984,7 +984,7 @@ bool DirectShowPlayer::OpenFile(const wchar_t* path) {
     Play();
     // Load subtitles asynchronously — don't block main thread
     m_subLoadPath = path;
-    m_mediaReadyGen++;  // invalidate stale WM_APP_MEDIA_READY from previous file
+    m_mediaReadyGen++; // invalidate stale WM_APP_MEDIA_READY from previous file
     m_hSubThread = CreateThread(nullptr, 0, SubtitleLoadThreadProc, this, 0, nullptr);
     VLog(L"[VIDI] Subtitle loading started in background thread");
     return true;
@@ -1007,7 +1007,7 @@ DWORD WINAPI DirectShowPlayer::SubtitleLoadThreadProc(LPVOID lpParam) {
 
 void DirectShowPlayer::WaitForSubtitles() {
     if (m_hSubThread) {
-        WaitForSingleObject(m_hSubThread, 5000);  // 5s timeout, prevent UI freeze
+        WaitForSingleObject(m_hSubThread, 5000); // 5s timeout, prevent UI freeze
         CloseHandle(m_hSubThread);
         m_hSubThread = nullptr;
     }
@@ -1170,6 +1170,7 @@ void DirectShowPlayer::HandleGraphEvent() {
 void DirectShowPlayer::Shutdown() {
     WaitForSubtitles();
     DestroyGraph();
+    m_subReader.FullShutdown();
     if (m_comInitialized) {
         CoUninitialize();
         m_comInitialized = false;

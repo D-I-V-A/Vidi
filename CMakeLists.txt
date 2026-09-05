@@ -13,6 +13,13 @@ add_compile_definitions(UNICODE _UNICODE)
 set(SOURCES
     src/main.cc
     src/gui/gui.cc
+    src/gui/gui_windowproc.cc
+    src/gui/gui_layout.cc
+    src/gui/gui_progressbar.cc
+    src/gui/gui_volumebar.cc
+    src/gui/gui_controls.cc
+    src/gui/gui_fullscreen.cc
+    src/gui/gui_subtitle.cc
     src/kernels/directShowPlayer.cc
     src/kernels/subtitleReader.cc
     src/kernels/assRenderer.cc

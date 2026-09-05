@@ -56,7 +56,8 @@ static std::vector<std::string> ExtractTtfFontNames(const uint8_t* data, int siz
     auto tryAddName = [&](const std::string& n) {
         if (!n.empty()) {
             for (auto& existing : names)
-                if (existing == n) return;
+                if (existing == n)
+                    return;
             names.push_back(n);
         }
     };
@@ -69,9 +70,9 @@ static std::vector<std::string> ExtractTtfFontNames(const uint8_t* data, int siz
                 break;
             uint16_t platformID = (nameTable[recOff + 0] << 8) | nameTable[recOff + 1];
             uint16_t encodingID = (nameTable[recOff + 2] << 8) | nameTable[recOff + 3];
-            uint16_t nameID     = (nameTable[recOff + 6] << 8) | nameTable[recOff + 7];
-            uint16_t strLength  = (nameTable[recOff + 8] << 8) | nameTable[recOff + 9];
-            uint16_t strOffset  = (nameTable[recOff + 10] << 8) | nameTable[recOff + 11];
+            uint16_t nameID = (nameTable[recOff + 6] << 8) | nameTable[recOff + 7];
+            uint16_t strLength = (nameTable[recOff + 8] << 8) | nameTable[recOff + 9];
+            uint16_t strOffset = (nameTable[recOff + 10] << 8) | nameTable[recOff + 11];
             if (nameID != tid)
                 continue;
             if (platformID != 3 && platformID != 1)
@@ -355,6 +356,10 @@ void SubtitleReader::FreeFile() {
 
 void SubtitleReader::Close() {
     FreeFile();
+}
+
+void SubtitleReader::FullShutdown() {
+    FreeFile();
     FreeFFmpegDlls();
 }
 
@@ -390,42 +395,47 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
     }
 
     // 2. Cari subtitle stream terbaik
-    int bestStream = -1;
-    int bestCount = 0;
-
     static const int MAX_STREAMS = 256;
-    int textCounts[MAX_STREAMS] = {};
-    int totalPackets[MAX_STREAMS] = {};
     bool isAttachment[MAX_STREAMS] = {};
 
-    AVPacketRaw* pkt = reinterpret_cast<AVPacketRaw*>(m_ff.av_packet_alloc());
-    int scanned = 0;
-    while (scanned < 50000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pkt)) >= 0) {
-        int si = pkt->stream_index;
-        if (si >= 0 && si < MAX_STREAMS) {
-            totalPackets[si]++;
-            if (pkt->data && pkt->size > 4 && LooksLikeSubtitleText(pkt->data, pkt->size))
-                textCounts[si]++;
-        }
-        m_ff.av_packet_unref(reinterpret_cast<AVPacket*>(pkt));
-        scanned++;
+    int bestStream = -1;
+    if (m_ff.av_find_best_stream) {
+        bestStream = m_ff.av_find_best_stream(m_fmtCtx, AVMEDIA_TYPE_SUBTITLE, -1, -1, nullptr, 0);
     }
 
-    for (int i = 0; i < MAX_STREAMS; ++i) {
-        if (textCounts[i] > bestCount && textCounts[i] >= totalPackets[i] / 3) {
-            bestCount = textCounts[i];
-            bestStream = i;
+    // Fallback: kalau av_find_best_stream gagal, scan max 5000 packet
+    if (bestStream < 0) {
+        AVPacketRaw* pktFb = reinterpret_cast<AVPacketRaw*>(m_ff.av_packet_alloc());
+        int textCounts[MAX_STREAMS] = {};
+        int totalPackets[MAX_STREAMS] = {};
+        int scanned = 0;
+        while (scanned < 5000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pktFb)) >= 0) {
+            int si = pktFb->stream_index;
+            if (si >= 0 && si < MAX_STREAMS) {
+                totalPackets[si]++;
+                if (pktFb->data && pktFb->size > 4 && LooksLikeSubtitleText(pktFb->data, pktFb->size))
+                    textCounts[si]++;
+            }
+            m_ff.av_packet_unref(reinterpret_cast<AVPacket*>(pktFb));
+            scanned++;
         }
+        m_ff.av_seek_frame(m_fmtCtx, -1, 0, 0);
+        for (int i = 0; i < MAX_STREAMS; ++i) {
+            if (textCounts[i] > 0 && textCounts[i] >= totalPackets[i] / 3) {
+                if (bestStream < 0 || textCounts[i] > textCounts[bestStream])
+                    bestStream = i;
+            }
+        }
+        m_ff.av_packet_free(reinterpret_cast<AVPacket**>(&pktFb));
     }
 
     if (bestStream < 0) {
-        m_ff.av_packet_free(reinterpret_cast<AVPacket**>(&pkt));
         VSubLog(L"[VIDI] Sub: no subtitle stream detected");
         return false;
     }
 
     m_subtitleStreamIndex = bestStream;
-    VSubLog(L"[VIDI] Sub: stream %d (%d text packets)", bestStream, bestCount);
+    VSubLog(L"[VIDI] Sub: stream %d (detected via av_find_best_stream)", bestStream);
 
     // Detect attachment streams via codec_type
     {
@@ -444,7 +454,6 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
 
     // 3. Feed codec_private ke libass
     //    MKV subtitle stream punya extradata = codec_private (ASS header)
-    //    Kita akses via compatible struct layouts
     {
         auto fmtRaw = reinterpret_cast<AVFormatContextCompat*>(m_fmtCtx);
         if (bestStream >= 0 && bestStream < (int)fmtRaw->nb_streams && fmtRaw->streams) {
@@ -457,7 +466,6 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
                     VSubLog(L"[VIDI] Sub: loaded codec_private (%d bytes) into libass", parRaw->extradata_size);
                 } else {
                     VSubLog(L"[VIDI] Sub: codec_private kosong, pakai default header");
-                    // Feed minimal default ASS header supaya libass tetap bisa render
                     const char* defaultHeader =
                         "[Script Info]\r\n"
                         "ScriptType: v4.00+\r\n"
@@ -481,7 +489,7 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
         }
     }
 
-    // 4. Feed semua subtitle packets ke libass
+    // 4. Feed subtitle packets ke libass — hanya baca stream subtitle + attachment
     if (m_ff.av_seek_frame)
         m_ff.av_seek_frame(m_fmtCtx, -1, 0, 0);
 
@@ -500,11 +508,18 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
 
     double tbVal = (subTimeBase.den != 0) ? (double)subTimeBase.num / subTimeBase.den : 1e-9;
 
+    AVPacketRaw* pkt = reinterpret_cast<AVPacketRaw*>(m_ff.av_packet_alloc());
     int fed = 0;
     int fontsFed = 0;
-    scanned = 0;
-    while (scanned < 500000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pkt)) >= 0) {
+    int scanned = 0;
+    while (scanned < 100000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pkt)) >= 0) {
         int si = pkt->stream_index;
+        // [PERF] Skip packet yang bukan subtitle dan bukan attachment
+        if (si != bestStream && (si < 0 || si >= MAX_STREAMS || !isAttachment[si])) {
+            m_ff.av_packet_unref(reinterpret_cast<AVPacket*>(pkt));
+            scanned++;
+            continue;
+        }
         if (pkt->data && pkt->size > 0) {
             if (si == bestStream) {
                 int dataSize = pkt->size;
@@ -539,11 +554,11 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
                 if (fontsFed <= 5) {
                     std::string nameList;
                     for (size_t ni = 0; ni < fontNames.size(); ni++) {
-                        if (ni > 0) nameList += ", ";
+                        if (ni > 0)
+                            nameList += ", ";
                         nameList += "'" + fontNames[ni] + "'";
                     }
-                    VSubLog(L"[VIDI] Sub: loaded font [%hs] (%d bytes, stream %d)",
-                            nameList.c_str(), pkt->size, si);
+                    VSubLog(L"[VIDI] Sub: loaded font [%hs] (%d bytes, stream %d)", nameList.c_str(), pkt->size, si);
                 }
             }
         }
@@ -551,7 +566,7 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
         scanned++;
     }
     m_ff.av_packet_free(reinterpret_cast<AVPacket**>(&pkt));
-    VSubLog(L"[VIDI] Sub: fed %d packets to libass", fed);
+    VSubLog(L"[VIDI] Sub: fed %d packets to libass (skipped non-sub/attachment)", fed);
 
     // Load fonts from attachment streams via codecpar->extradata
     {
@@ -574,8 +589,7 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
             if (fontNames.empty())
                 fontNames.push_back("ATTACHMENT_" + std::to_string(si));
             for (auto& fn : fontNames) {
-                m_assRenderer.AddFont(fn.c_str(),
-                                      reinterpret_cast<const char*>(d), dsize);
+                m_assRenderer.AddFont(fn.c_str(), reinterpret_cast<const char*>(d), dsize);
             }
             fontsFed++;
         }

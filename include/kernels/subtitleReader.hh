@@ -46,6 +46,7 @@ class SubtitleReader {
 
     bool Open(const wchar_t* videoPath);
     void Close();
+    void FullShutdown();
     bool IsLoaded() const {
         return m_loaded;
     }

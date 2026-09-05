@@ -1,13 +1,14 @@
 #ifndef GUI_HH
 #define GUI_HH
 
+#include "constants.hh"
+#include "../kernels/directShowPlayer.hh"
+
 #include <windows.h>
 #include <commctrl.h>
 #include <vsstyle.h>
 #include <Uxtheme.h>
 #include <map>
-
-#include "../kernels/directShowPlayer.hh"
 
 namespace guiVidi {
 
@@ -28,14 +29,6 @@ class VideoPlayerGUI {
     HFONT m_hModernFont;
     HFONT m_hTimeFont;
     HFONT m_hTipFont;
-
-    static const COLORREF COLOR_MODERN_BG = RGB(255, 255, 255);
-    static const COLORREF COLOR_MODERN_PRIMARY = RGB(0, 120, 212);
-    static const COLORREF COLOR_MODERN_TEXT = RGB(50, 50, 50);
-    static const COLORREF COLOR_SEEK_TRACK = RGB(224, 224, 224);
-    static const COLORREF COLOR_SEEK_FILL = RGB(255, 140, 0);
-    static const COLORREF COLOR_SEEK_FILL_HOT = RGB(255, 170, 51);
-    static const COLORREF COLOR_TIP_BG = RGB(30, 30, 30);
 
     kernelPlayerVidi::DirectShowPlayer m_player;
     bool m_isDraggingProgress;
@@ -61,7 +54,6 @@ class VideoPlayerGUI {
     bool m_volHot;
     bool m_volDrag;
     int m_volHotX;
-    static const int VOL_MAX = 150;
 
     bool m_isLooping;
     bool m_isShuffle;
@@ -69,7 +61,6 @@ class VideoPlayerGUI {
     DWORD m_lastVideoClickTick;
     short m_lastVideoClickX, m_lastVideoClickY;
 
-    static const int MAX_SUB_OVERLAYS = 2;
     HWND m_hSubOverlay[MAX_SUB_OVERLAYS];
     HBITMAP m_hSubBmp[2];
     void* m_pSubBmpBits[2];
