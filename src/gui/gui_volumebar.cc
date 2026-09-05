@@ -49,8 +49,10 @@ LRESULT CALLBACK VideoPlayerGUI::VolumeSubclassProc(HWND hwnd, UINT uMsg, WPARAM
             GetClientRect(hwnd, &rc);
             int x = (short)LOWORD(lParam);
             int pos = (rc.right > 0) ? (int)(((double)x / rc.right) * VOL_MAX) : 0;
-            if (pos < 0) pos = 0;
-            if (pos > VOL_MAX) pos = VOL_MAX;
+            if (pos < 0)
+                pos = 0;
+            if (pos > VOL_MAX)
+                pos = VOL_MAX;
             SendMessage(hwnd, TBM_SETPOS, TRUE, pos);
             self->m_volHotX = x;
             self->ApplyVolumeFromSlider(pos);
@@ -67,8 +69,10 @@ LRESULT CALLBACK VideoPlayerGUI::VolumeSubclassProc(HWND hwnd, UINT uMsg, WPARAM
             RECT rc;
             GetClientRect(hwnd, &rc);
             int pos = (rc.right > 0) ? (int)(((double)x / rc.right) * VOL_MAX) : 0;
-            if (pos < 0) pos = 0;
-            if (pos > VOL_MAX) pos = VOL_MAX;
+            if (pos < 0)
+                pos = 0;
+            if (pos > VOL_MAX)
+                pos = VOL_MAX;
             SendMessage(hwnd, TBM_SETPOS, TRUE, pos);
             self->m_volHotX = x;
             self->ApplyVolumeFromSlider(pos);
@@ -130,8 +134,10 @@ void VideoPlayerGUI::DrawVlcVolumeBar(HDC hdc) {
     RoundRect(hdc, track.left, track.top, track.right, track.bottom, BAR_H, BAR_H);
 
     double ratio = (double)pos / VOL_MAX;
-    if (ratio < 0) ratio = 0;
-    if (ratio > 1) ratio = 1;
+    if (ratio < 0)
+        ratio = 0;
+    if (ratio > 1)
+        ratio = 1;
     COLORREF cFill = (ratio < 0.6667) ? LerpColor(RGB(60, 170, 70), RGB(255, 200, 40), ratio / 0.6667)
                                       : LerpColor(RGB(255, 200, 40), RGB(225, 55, 55), (ratio - 0.6667) / 0.3333);
 
@@ -176,8 +182,10 @@ void VideoPlayerGUI::DrawVlcVolumeBar(HDC hdc) {
 // APPLY VOLUME
 // ==========================================
 void VideoPlayerGUI::ApplyVolumeFromSlider(int pos) {
-    if (pos < 0) pos = 0;
-    if (pos > VOL_MAX) pos = VOL_MAX;
+    if (pos < 0)
+        pos = 0;
+    if (pos > VOL_MAX)
+        pos = VOL_MAX;
     float v = pos / 100.0f;
     float native = (v > 1.0f) ? 1.0f : v;
     float boost = (v > 1.0f) ? v : 1.0f;

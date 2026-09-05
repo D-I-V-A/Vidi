@@ -17,15 +17,14 @@ static void AssLogCallback(int level, const char* fmt, va_list args, void* data)
 }
 
 AssRenderer::AssRenderer()
-    : m_library(nullptr)
-    , m_renderer(nullptr)
-    , m_track(nullptr)
-    , m_frameWidth(0)
-    , m_frameHeight(0)
-    , m_storageWidth(0)
-    , m_storageHeight(0)
-    , m_initialized(false) {
-}
+    : m_library(nullptr),
+      m_renderer(nullptr),
+      m_track(nullptr),
+      m_frameWidth(0),
+      m_frameHeight(0),
+      m_storageWidth(0),
+      m_storageHeight(0),
+      m_initialized(false) {}
 
 AssRenderer::~AssRenderer() {
     Shutdown();
@@ -91,35 +90,27 @@ bool AssRenderer::SetStorageSize(int width, int height) {
     return true;
 }
 
-bool AssRenderer::SetFonts(const std::wstring& defaultFont,
-                           const std::wstring& defaultFamily) {
+bool AssRenderer::SetFonts(const std::wstring& defaultFont, const std::wstring& defaultFamily) {
     if (!m_renderer)
         return false;
     std::string utf8Default;
     std::string utf8Family;
     if (!defaultFont.empty()) {
-        int len = WideCharToMultiByte(CP_UTF8, 0, defaultFont.c_str(), -1,
-                                      nullptr, 0, nullptr, nullptr);
+        int len = WideCharToMultiByte(CP_UTF8, 0, defaultFont.c_str(), -1, nullptr, 0, nullptr, nullptr);
         if (len > 0) {
             utf8Default.resize(len - 1);
-            WideCharToMultiByte(CP_UTF8, 0, defaultFont.c_str(), -1,
-                                &utf8Default[0], len, nullptr, nullptr);
+            WideCharToMultiByte(CP_UTF8, 0, defaultFont.c_str(), -1, &utf8Default[0], len, nullptr, nullptr);
         }
     }
     if (!defaultFamily.empty()) {
-        int len = WideCharToMultiByte(CP_UTF8, 0, defaultFamily.c_str(), -1,
-                                      nullptr, 0, nullptr, nullptr);
+        int len = WideCharToMultiByte(CP_UTF8, 0, defaultFamily.c_str(), -1, nullptr, 0, nullptr, nullptr);
         if (len > 0) {
             utf8Family.resize(len - 1);
-            WideCharToMultiByte(CP_UTF8, 0, defaultFamily.c_str(), -1,
-                                &utf8Family[0], len, nullptr, nullptr);
+            WideCharToMultiByte(CP_UTF8, 0, defaultFamily.c_str(), -1, &utf8Family[0], len, nullptr, nullptr);
         }
     }
-    ass_set_fonts(m_renderer,
-                  utf8Default.empty() ? nullptr : utf8Default.c_str(),
-                  utf8Family.empty() ? nullptr : utf8Family.c_str(),
-                  ASS_FONTPROVIDER_DIRECTWRITE,
-                  nullptr, 0);
+    ass_set_fonts(m_renderer, utf8Default.empty() ? nullptr : utf8Default.c_str(),
+                  utf8Family.empty() ? nullptr : utf8Family.c_str(), ASS_FONTPROVIDER_DIRECTWRITE, nullptr, 0);
     return true;
 }
 
@@ -137,8 +128,7 @@ bool AssRenderer::LoadTrackFromMemory(const char* data, int size) {
     return true;
 }
 
-bool AssRenderer::ProcessChunk(const char* data, int size,
-                               long long timecodeMs, long long durationMs) {
+bool AssRenderer::ProcessChunk(const char* data, int size, long long timecodeMs, long long durationMs) {
     if (!m_track || !data || size <= 0)
         return false;
     ass_process_chunk(m_track, data, size, timecodeMs, durationMs);
@@ -184,8 +174,7 @@ std::vector<RenderedBitmap> AssRenderer::RenderFrame(long long timeMs) {
             rb.color = img->color;
             rb.bitmap.reserve(img->w * img->h);
             for (int y = 0; y < img->h; y++) {
-                rb.bitmap.insert(rb.bitmap.end(),
-                                 img->bitmap + y * img->stride,
+                rb.bitmap.insert(rb.bitmap.end(), img->bitmap + y * img->stride,
                                  img->bitmap + y * img->stride + img->w);
             }
             result.push_back(std::move(rb));

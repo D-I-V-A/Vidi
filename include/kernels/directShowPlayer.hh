@@ -73,12 +73,20 @@ class DirectShowPlayer {
     void ForceFrameRefresh();
     void ShowVideoWindow();
     void GetNativeVideoSize(int& width, int& height);
-    SubtitleReader& GetSubtitleReader() { return m_subReader; }
-    HWND GetNotifyWnd() const { return m_hNotifyWnd; }
+    SubtitleReader& GetSubtitleReader() {
+        return m_subReader;
+    }
+    HWND GetNotifyWnd() const {
+        return m_hNotifyWnd;
+    }
     void HandleGraphEvent();
     void SetDspGain(float gain);
-    bool IsSubtitlesLoaded() const { return m_subReader.IsLoaded(); }
-    uint32_t GetMediaReadyGen() const { return m_mediaReadyGen.load(); }
+    bool IsSubtitlesLoaded() const {
+        return m_subReader.IsLoaded();
+    }
+    uint32_t GetMediaReadyGen() const {
+        return m_mediaReadyGen.load();
+    }
     void WaitForSubtitles();
 };
 } // namespace kernelPlayerVidi

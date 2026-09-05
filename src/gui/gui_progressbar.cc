@@ -146,8 +146,10 @@ void VideoPlayerGUI::DrawVlcSeekbar(HDC hdc) {
     RoundRect(hdc, track.left, track.top, track.right, track.bottom, BAR_H, BAR_H);
 
     double ratio = (m_progressRangeMax > 0) ? (double)pos / m_progressRangeMax : 0.0;
-    if (ratio < 0) ratio = 0;
-    if (ratio > 1) ratio = 1;
+    if (ratio < 0)
+        ratio = 0;
+    if (ratio > 1)
+        ratio = 1;
 
     int fx = track.left + (int)(ratio * w);
     if (fx > track.left + BAR_H) {
@@ -190,8 +192,10 @@ void VideoPlayerGUI::SeekFromTrackbarClick(int mouseX) {
         return;
 
     double ratio = static_cast<double>(mouseX) / static_cast<double>(rc.right);
-    if (ratio < 0.0) ratio = 0.0;
-    if (ratio > 1.0) ratio = 1.0;
+    if (ratio < 0.0)
+        ratio = 0.0;
+    if (ratio > 1.0)
+        ratio = 1.0;
 
     m_hotX = mouseX;
     m_isDraggingProgress = true;
@@ -208,8 +212,10 @@ void VideoPlayerGUI::DragSeekTo(int x) {
         return;
 
     double ratio = static_cast<double>(x) / static_cast<double>(rc.right);
-    if (ratio < 0.0) ratio = 0.0;
-    if (ratio > 1.0) ratio = 1.0;
+    if (ratio < 0.0)
+        ratio = 0.0;
+    if (ratio > 1.0)
+        ratio = 1.0;
 
     m_hotX = x;
     int newPos = static_cast<int>(ratio * m_progressRangeMax);

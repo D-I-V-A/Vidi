@@ -13,7 +13,7 @@ struct RenderedBitmap {
     int y;
     int width;
     int height;
-    uint32_t color; // ASS_RGBA
+    uint32_t color;              // ASS_RGBA
     std::vector<uint8_t> bitmap; // alpha-only 8-bit
 };
 
@@ -37,12 +37,10 @@ class AssRenderer {
 
     bool SetFrameSize(int width, int height);
     bool SetStorageSize(int width, int height);
-    bool SetFonts(const std::wstring& defaultFont = L"",
-                  const std::wstring& defaultFamily = L"");
+    bool SetFonts(const std::wstring& defaultFont = L"", const std::wstring& defaultFamily = L"");
 
     bool LoadTrackFromMemory(const char* data, int size);
-    bool ProcessChunk(const char* data, int size,
-                      long long timecodeMs, long long durationMs);
+    bool ProcessChunk(const char* data, int size, long long timecodeMs, long long durationMs);
     void FlushEvents();
     void SetCheckReadorder(bool check);
 
@@ -50,8 +48,12 @@ class AssRenderer {
     void ClearFonts();
 
     std::vector<RenderedBitmap> RenderFrame(long long timeMs);
-    ASS_Track* GetTrack() { return m_track; }
-    ASS_Library* GetLibrary() { return m_library; }
+    ASS_Track* GetTrack() {
+        return m_track;
+    }
+    ASS_Library* GetLibrary() {
+        return m_library;
+    }
 };
 
 } // namespace kernelPlayerVidi
