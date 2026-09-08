@@ -82,8 +82,7 @@ void VideoPlayerGUI::ExitFullscreen() {
         MONITORINFO mi = {sizeof(mi)};
         if (GetMonitorInfo(mon, &mi)) {
             RECT r = mi.rcWork;
-            SetWindowPos(g_hMainWnd, nullptr, r.left, r.top,
-                         r.right - r.left, r.bottom - r.top,
+            SetWindowPos(g_hMainWnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
                          SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
         }
     }

@@ -287,7 +287,7 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
                 self->HideAllSubOverlays();
                 self->m_lastVideoClickTick = 0;
                 if (self->m_isFullscreen) {
-                    self->ExitFullscreen();      // ← KELUAR FULLSCREEN saat Alt-Tab
+                    self->ExitFullscreen(); // ← KELUAR FULLSCREEN saat Alt-Tab
                 }
             } else { // Mendapat fokus kembali
                 self->m_subsHidden = false;

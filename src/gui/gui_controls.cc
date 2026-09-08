@@ -179,11 +179,11 @@ void VideoPlayerGUI::OnTimerTick() {
     int interval = 500; // default
     if (m_cachedDuration > 0.0) {
         if (m_cachedDuration < 60.0) {
-            interval = 100;     // < 1 menit: update setiap 100ms (akurasi tinggi)
+            interval = 100; // < 1 menit: update setiap 100ms (akurasi tinggi)
         } else if (m_cachedDuration < 30 * 60) {
-            interval = 500;     // 1 - 30 menit: default (500ms)
+            interval = 500; // 1 - 30 menit: default (500ms)
         } else {
-            interval = 2000;    // > 30 menit: kurangi ke 2 detik
+            interval = 2000; // > 30 menit: kurangi ke 2 detik
         }
     }
 
