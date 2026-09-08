@@ -12,9 +12,12 @@ namespace guiVidi {
 void VideoPlayerGUI::OnMediaReady() {
     m_cachedDuration = m_player.GetDuration();
     double dur = m_cachedDuration;
-    int range = static_cast<int>(dur * 10.0);
-    if (range < 100)
-        range = 100;
+    double range = dur * 10.0;
+    if (range < 100.0)
+        range = 100.0;
+    // Capping range maksimal 10000 (16 menit) agar tidak overflow
+    if (range > 10000.0)
+        range = 10000.0;
     m_progressRangeMax = range;
     SendMessage(g_hProgress, TBM_SETRANGEMIN, TRUE, 0);
     SendMessage(g_hProgress, TBM_SETRANGEMAX, TRUE, m_progressRangeMax);
@@ -171,7 +174,20 @@ void VideoPlayerGUI::OnTimerTick() {
     if (m_isDraggingProgress)
         return;
     DWORD now = GetTickCount();
-    if (now - m_lastDurCheckTick > 500) {
+
+    // Adaptive interval berdasarkan durasi video
+    int interval = 500; // default
+    if (m_cachedDuration > 0.0) {
+        if (m_cachedDuration < 60.0) {
+            interval = 100; // < 1 menit: update setiap 100ms (akurasi tinggi)
+        } else if (m_cachedDuration < 30 * 60) {
+            interval = 500; // 1 - 30 menit: default (500ms)
+        } else {
+            interval = 2000; // > 30 menit: kurangi ke 2 detik
+        }
+    }
+
+    if (now - m_lastDurCheckTick > interval) {
         m_lastDurCheckTick = now;
         double fresh = m_player.GetDuration();
         if (fresh > 0.0 && fabs(fresh - m_cachedDuration) > 0.5) {
@@ -179,6 +195,9 @@ void VideoPlayerGUI::OnTimerTick() {
             int range = static_cast<int>(fresh * 10.0);
             if (range < 100)
                 range = 100;
+            // Capping range maksimal 10000 (16 menit) agar tidak overflow
+            if (range > 10000)
+                range = 10000;
             m_progressRangeMax = range;
             SendMessage(g_hProgress, TBM_SETRANGEMIN, TRUE, 0);
             SendMessage(g_hProgress, TBM_SETRANGEMAX, TRUE, m_progressRangeMax);
@@ -223,10 +242,13 @@ void VideoPlayerGUI::UpdateTimeLabel(double posSeconds, double durSeconds) {
     if (d <= 0) {
         swprintf_s(buf, L"--:-- / --:--");
     } else if (d >= 3600) {
+        // < 1 jam: MM:SS
+        swprintf_s(buf, L"%02d:%02d / %02d:%02d", p / 60, p % 60, d / 60, d % 60);
+
+    } else {
+        // >= 1 jam: HH:MM:SS
         swprintf_s(buf, L"%d:%02d:%02d / %d:%02d:%02d", p / 3600, (p % 3600) / 60, p % 60, d / 3600, (d % 3600) / 60,
                    d % 60);
-    } else {
-        swprintf_s(buf, L"%02d:%02d / %02d:%02d", p / 60, p % 60, d / 60, d % 60);
     }
 
     SetWindowTextW(g_hTimeLabel, buf);

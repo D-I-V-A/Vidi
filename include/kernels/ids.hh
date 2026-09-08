@@ -174,8 +174,6 @@
 #define WM_APP_GRAPH_EVENT (WM_APP + 10)
 #define WM_APP_FS_DEACTIVATE (WM_APP + 20)
 #define WM_APP_FS_ACTIVATE (WM_APP + 21)
-#define WM_APP_FS_DEACTIVATE (WM_APP + 20)
-#define WM_APP_FS_ACTIVATE (WM_APP + 21)
 // ==========================================
 // ACCELERATOR TABLE
 // ==========================================
