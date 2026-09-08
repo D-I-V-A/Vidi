@@ -117,6 +117,13 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         double dpi = self ? GetDpiScale(hwnd) : 1.0;
         pmmi->ptMinTrackSize.x = (int)(500 * dpi);
         pmmi->ptMinTrackSize.y = (int)(320 * dpi);
+
+        HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = {sizeof(mi)};
+        if (GetMonitorInfo(mon, &mi)) {
+            pmmi->ptMaxTrackSize.x = mi.rcWork.right - mi.rcWork.left;
+            pmmi->ptMaxTrackSize.y = mi.rcWork.bottom - mi.rcWork.top;
+        }
         return 0;
     }
     case WM_DPICHANGED: {
@@ -211,13 +218,16 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         int x = (short)LOWORD(lParam);
         if (GetCapture() == hwnd && self->m_isDraggingProgress) {
             self->DragSeekTo(x);
-        } else {
-            TRACKMOUSEEVENT tme = {sizeof(tme), TME_LEAVE, hwnd, 0};
-            TrackMouseEvent(&tme);
-            self->m_hotX = x;
-            if (!self->m_seekHot) {
-                self->m_seekHot = true;
-                InvalidateRect(hwnd, nullptr, FALSE);
+        } else if (self->g_hProgress) {
+            RECT rcProg;
+            GetWindowRect(self->g_hProgress, &rcProg);
+            POINT pt = {x, (short)HIWORD(lParam)};
+            // Konversi ke screen coords untuk comparison
+            ClientToScreen(hwnd, &pt);
+            if (!PtInRect(&rcProg, pt)) {
+                // Mouse bukan di progress bar → handle normal
+                TRACKMOUSEEVENT tme = {sizeof(tme), TME_LEAVE, hwnd, 0};
+                TrackMouseEvent(&tme);
             }
         }
         return 0;
@@ -260,39 +270,71 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             }
         }
         return 0;
-
-    case WM_ACTIVATEAPP:
-        if (self && !wParam) {
-            self->HideAllSubOverlays();
-            self->m_lastVideoClickTick = 0;
-            if (self->m_isFullscreen)
+    case WM_ACTIVATE:
+        if (self && self->m_isFullscreen) {
+            if (wParam == WA_INACTIVE) {
+                // Kehilangan fokus
                 PostMessage(hwnd, WM_APP_FS_DEACTIVATE, 0, 0);
-        } else if (self && wParam) {
-            self->m_subsHidden = false;
-            if (self->m_isFullscreen)
+            } else {
+                // Mendapat fokus
                 PostMessage(hwnd, WM_APP_FS_ACTIVATE, 0, 0);
+            }
+        }
+        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    case WM_ACTIVATEAPP:
+        if (self) {
+            if (!wParam) { // Aplikasi kehilangan fokus (misal Alt+Tab ke aplikasi lain)
+                self->HideAllSubOverlays();
+                self->m_lastVideoClickTick = 0;
+                if (self->m_isFullscreen) {
+                    self->ExitFullscreen();      // ← KELUAR FULLSCREEN saat Alt-Tab
+                }
+            } else { // Mendapat fokus kembali
+                self->m_subsHidden = false;
+            }
         }
         return 0;
 
     case WM_APP_FS_DEACTIVATE:
         if (self && self->m_isFullscreen) {
-            OutputDebugStringW(L"[VIDI] FS_DEACTIVATE -> HWND_NOTOPMOST\n");
-            SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER);
+            self->ExitFullscreen();
         }
         return 0;
 
     case WM_APP_FS_ACTIVATE:
         if (self && self->m_isFullscreen) {
-            MONITORINFO mi = {sizeof(mi)};
             HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            MONITORINFO mi = {sizeof(mi)};
             if (GetMonitorInfo(mon, &mi)) {
-                SetWindowPos(hwnd, HWND_TOPMOST, mi.rcMonitor.left, mi.rcMonitor.top,
-                             mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top,
-                             SWP_NOOWNERZORDER);
+                RECT rcWindow;
+                GetWindowRect(hwnd, &rcWindow);
+                int winW = rcWindow.right - rcWindow.left;
+                int winH = rcWindow.bottom - rcWindow.top;
+                int monW = mi.rcMonitor.right - mi.rcMonitor.left;
+                int monH = mi.rcMonitor.bottom - mi.rcMonitor.top;
+
+                // Cek apakah ukuran window sudah sama dengan monitor
+                if (winW != monW || winH != monH) {
+                    // Resize ke ukuran monitor (hanya jika diperlukan)
+                    SetWindowPos(hwnd, HWND_TOPMOST, mi.rcMonitor.left, mi.rcMonitor.top, monW, monH,
+                                 SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+                    // Layout ulang karena ukuran berubah
+                    RECT rcClient;
+                    GetClientRect(hwnd, &rcClient);
+                    self->LayoutFullscreen(rcClient.right, rcClient.bottom);
+                } else {
+                    // Ukuran sudah pas, cukup set topmost tanpa resize
+                    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER);
+                    RECT rcClient;
+                    GetClientRect(hwnd, &rcClient);
+                    self->LayoutFullscreen(rcClient.right, rcClient.bottom);
+                }
             }
-            self->RecoverVideo();
+            // Hapus panggilan RecoverVideo() – tidak diperlukan
+            // self->RecoverVideo();
         }
         return 0;
+
     case WM_WTSSESSION_CHANGE:
         if (self && (wParam == WTS_SESSION_UNLOCK || wParam == WTS_REMOTE_CONNECT || wParam == WTS_CONSOLE_CONNECT))
             self->RecoverVideo();
