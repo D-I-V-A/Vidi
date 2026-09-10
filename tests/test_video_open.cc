@@ -22,10 +22,8 @@
 
 static const CLSID CLSID_LAVSplitterSource = {
     0xB98D13E7, 0x55DB, 0x4385, {0xA3, 0x3D, 0x09, 0xFD, 0x1B, 0xA2, 0x63, 0x38}};
-static const CLSID CLSID_LAVVideo = {
-    0xEE30215D, 0x164F, 0x4A92, {0xA4, 0xEB, 0x9D, 0x4C, 0x13, 0x39, 0x0F, 0x9F}};
-static const CLSID CLSID_LAVAudio = {
-    0xE8E73B6B, 0x4CB3, 0x44A4, {0xBE, 0x99, 0x4F, 0x7B, 0xCB, 0x96, 0xE4, 0x91}};
+static const CLSID CLSID_LAVVideo = {0xEE30215D, 0x164F, 0x4A92, {0xA4, 0xEB, 0x9D, 0x4C, 0x13, 0x39, 0x0F, 0x9F}};
+static const CLSID CLSID_LAVAudio = {0xE8E73B6B, 0x4CB3, 0x44A4, {0xBE, 0x99, 0x4F, 0x7B, 0xCB, 0x96, 0xE4, 0x91}};
 
 // ============================================================
 // Test Framework
@@ -34,15 +32,15 @@ static const CLSID CLSID_LAVAudio = {
 static int g_testsPassed = 0;
 static int g_testsFailed = 0;
 
-#define TEST_ASSERT(condition, msg)                                         \
-    do {                                                                    \
-        if (!(condition)) {                                                 \
-            printf("  FAIL: %s (line %d)\n", msg, __LINE__);               \
-            g_testsFailed++;                                                \
-        } else {                                                            \
-            printf("  PASS: %s\n", msg);                                    \
-            g_testsPassed++;                                                \
-        }                                                                   \
+#define TEST_ASSERT(condition, msg)                                                                                    \
+    do {                                                                                                               \
+        if (!(condition)) {                                                                                            \
+            printf("  FAIL: %s (line %d)\n", msg, __LINE__);                                                           \
+            g_testsFailed++;                                                                                           \
+        } else {                                                                                                       \
+            printf("  PASS: %s\n", msg);                                                                               \
+            g_testsPassed++;                                                                                           \
+        }                                                                                                              \
     } while (0)
 
 #define TEST_SECTION(name) printf("\n=== %s ===\n", name)
@@ -83,9 +81,9 @@ static EnvConfig LoadEnvDev() {
 
     // Coba beberapa lokasi
     std::vector<std::wstring> candidates = {
-        envPath,                                              // build/bin/../../tests/env.dev
-        exeDir + L"\\..\\tests\\env.dev",                     // build/tests/../tests/env.dev
-        exeDir + L"\\tests\\env.dev",                         // tests/env.dev (flat)
+        envPath,                                                                      // build/bin/../../tests/env.dev
+        exeDir + L"\\..\\tests\\env.dev",                                             // build/tests/../tests/env.dev
+        exeDir + L"\\tests\\env.dev",                                                 // tests/env.dev (flat)
         GetExeDir().substr(0, GetExeDir().find_last_of(L"\\")) + L"\\tests\\env.dev", // project root/tests/env.dev
     };
 
@@ -176,8 +174,7 @@ static std::vector<VideoFile> ScanVideoFolder(const std::wstring& dir) {
         // Filter: .mkv, .mp4, .avi
         std::wstring ext = name;
         std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
-        if (ext.find(L".mkv") == std::wstring::npos &&
-            ext.find(L".mp4") == std::wstring::npos &&
+        if (ext.find(L".mkv") == std::wstring::npos && ext.find(L".mp4") == std::wstring::npos &&
             ext.find(L".avi") == std::wstring::npos)
             continue;
 
@@ -191,9 +188,7 @@ static std::vector<VideoFile> ScanVideoFolder(const std::wstring& dir) {
     FindClose(hFind);
 
     // Sort by name
-    std::sort(videos.begin(), videos.end(), [](const VideoFile& a, const VideoFile& b) {
-        return a.name < b.name;
-    });
+    std::sort(videos.begin(), videos.end(), [](const VideoFile& a, const VideoFile& b) { return a.name < b.name; });
 
     return videos;
 }
@@ -202,15 +197,14 @@ static std::vector<VideoFile> ScanVideoFolder(const std::wstring& dir) {
 // DirectShow Helper: Load Filter
 // ============================================================
 
-typedef HRESULT(STDAPICALLTYPE * DllGetClassObjectFunc)(REFCLSID, REFIID, LPVOID*);
+typedef HRESULT(STDAPICALLTYPE* DllGetClassObjectFunc)(REFCLSID, REFIID, LPVOID*);
 
 static IBaseFilter* LoadLavFilter(const wchar_t* dllPath, REFCLSID clsid) {
     HMODULE hDll = LoadLibraryW(dllPath);
     if (!hDll)
         return nullptr;
 
-    DllGetClassObjectFunc pDllGetClassObject =
-        (DllGetClassObjectFunc)GetProcAddress(hDll, "DllGetClassObject");
+    DllGetClassObjectFunc pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hDll, "DllGetClassObject");
     if (!pDllGetClassObject) {
         FreeLibrary(hDll);
         return nullptr;
@@ -344,9 +338,12 @@ static TimingResult TestSingleVideoOpen(const VideoFile& video, bool cached) {
 
     if (!hSplitter || !hVideo || !hAudio) {
         printf("  ERROR: Failed to load LAV DLLs\n");
-        if (hSplitter) FreeLibrary(hSplitter);
-        if (hVideo) FreeLibrary(hVideo);
-        if (hAudio) FreeLibrary(hAudio);
+        if (hSplitter)
+            FreeLibrary(hSplitter);
+        if (hVideo)
+            FreeLibrary(hVideo);
+        if (hAudio)
+            FreeLibrary(hAudio);
         return result;
     }
 
@@ -357,8 +354,7 @@ static TimingResult TestSingleVideoOpen(const VideoFile& video, bool cached) {
     auto t3 = std::chrono::high_resolution_clock::now();
 
     IGraphBuilder* pGraph = nullptr;
-    HRESULT hr = CoCreateInstance(CLSID_FilterGraph, nullptr, CLSCTX_INPROC_SERVER,
-                                  IID_IGraphBuilder, (void**)&pGraph);
+    HRESULT hr = CoCreateInstance(CLSID_FilterGraph, nullptr, CLSCTX_INPROC_SERVER, IID_IGraphBuilder, (void**)&pGraph);
     if (FAILED(hr) || !pGraph) {
         printf("  ERROR: CreateFilterGraph failed\n");
         CoUninitialize();
@@ -408,10 +404,14 @@ static TimingResult TestSingleVideoOpen(const VideoFile& video, bool cached) {
     result.totalMs = std::chrono::duration<double, std::milli>(totalEnd - totalStart).count();
 
     // === Cleanup: Release COM objects, but DON'T FreeLibrary (cached) ===
-    if (pAudio) pAudio->Release();
-    if (pVideo) pVideo->Release();
-    if (pSplitter) pSplitter->Release();
-    if (pGraph) pGraph->Release();
+    if (pAudio)
+        pAudio->Release();
+    if (pVideo)
+        pVideo->Release();
+    if (pSplitter)
+        pSplitter->Release();
+    if (pGraph)
+        pGraph->Release();
 
     CoUninitialize();
 
@@ -471,9 +471,12 @@ static BenchmarkResult RunBenchmark(const std::vector<VideoFile>& allVideos, int
     bench.avgMs = bench.totalMs / openCount;
 
     // Cleanup cached DLLs
-    if (hSplitter) FreeLibrary(hSplitter);
-    if (hVideo) FreeLibrary(hVideo);
-    if (hAudio) FreeLibrary(hAudio);
+    if (hSplitter)
+        FreeLibrary(hSplitter);
+    if (hVideo)
+        FreeLibrary(hVideo);
+    if (hAudio)
+        FreeLibrary(hAudio);
 
     return bench;
 }
@@ -530,10 +533,8 @@ int main() {
             auto result = TestSingleVideoOpen(video, cached);
             results.push_back(result);
 
-            printf("  Run %d (%s): DLL=%.1fms Graph=%.1fms Open=%.1fms Total=%.1fms\n",
-                   i + 1, cached ? "warm " : "cold",
-                   result.dllLoadMs, result.graphBuildMs,
-                   result.fileOpenMs, result.totalMs);
+            printf("  Run %d (%s): DLL=%.1fms Graph=%.1fms Open=%.1fms Total=%.1fms\n", i + 1,
+                   cached ? "warm " : "cold", result.dllLoadMs, result.graphBuildMs, result.fileOpenMs, result.totalMs);
         }
 
         double coldTotal = results[0].totalMs;
@@ -571,8 +572,7 @@ int main() {
 
             // Tampilkan hasil per video
             for (int i = 0; i < (int)bench.timings.size(); i++) {
-                printf("  [%2d] %ls → %.1fms\n",
-                       i + 1, bench.timings[i].videoName.c_str(), bench.timings[i].totalMs);
+                printf("  [%2d] %ls → %.1fms\n", i + 1, bench.timings[i].videoName.c_str(), bench.timings[i].totalMs);
             }
 
             printf("\n  Total:   %.1f ms\n", bench.totalMs);
@@ -591,7 +591,8 @@ int main() {
             printf("  Cold LoadLibraryW time: %.1f ms (3 DLLs)\n", coldLoadTimeMs);
             printf("\n");
             printf("  | %-12s | %-12s | %-12s | %-12s |\n", "Open Count", "Cached", "Non-Cached", "Saved");
-            printf("  | %-12s | %-12s | %-12s | %-12s |\n", "------------", "------------", "------------", "------------");
+            printf("  | %-12s | %-12s | %-12s | %-12s |\n", "------------", "------------", "------------",
+                   "------------");
 
             for (auto& bench : allResults) {
                 // Non-cached = cached time + (coldLoadTime * openCount)
@@ -599,8 +600,8 @@ int main() {
                 double savedMs = nonCachedMs - bench.totalMs;
                 double savedPct = (savedMs / nonCachedMs) * 100.0;
 
-                printf("  | %-12d | %8.1f ms | %8.1f ms | %8.1f ms |\n",
-                       bench.openCount, bench.totalMs, nonCachedMs, savedMs);
+                printf("  | %-12d | %8.1f ms | %8.1f ms | %8.1f ms |\n", bench.openCount, bench.totalMs, nonCachedMs,
+                       savedMs);
             }
             printf("\n");
         }

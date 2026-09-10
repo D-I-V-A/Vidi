@@ -69,6 +69,7 @@ class VideoPlayerGUI {
     HFONT m_hSubFont;
     std::map<int, HFONT> m_subFontCache;
     bool m_subsHidden;
+    bool m_isClosing;
     int m_lastUsedOverlays = 0;
     uint32_t m_lastMediaReadyGen = 0;
     size_t m_lastSubContentHash = 0;
@@ -179,6 +180,7 @@ class VideoPlayerGUI {
           m_hSubBmp{nullptr, nullptr},
           m_pSubBmpBits{nullptr, nullptr},
           m_subsHidden(false),
+          m_isClosing(false),
           m_prevPlacement{sizeof(WINDOWPLACEMENT)} {
         for (int i = 0; i < MAX_SUB_OVERLAYS; ++i)
             m_hSubOverlay[i] = nullptr;
