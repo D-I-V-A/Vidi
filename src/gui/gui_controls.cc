@@ -242,13 +242,12 @@ void VideoPlayerGUI::UpdateTimeLabel(double posSeconds, double durSeconds) {
     if (d <= 0) {
         swprintf_s(buf, L"--:-- / --:--");
     } else if (d >= 3600) {
-        // < 1 jam: MM:SS
-        swprintf_s(buf, L"%02d:%02d / %02d:%02d", p / 60, p % 60, d / 60, d % 60);
-
-    } else {
         // >= 1 jam: HH:MM:SS
         swprintf_s(buf, L"%d:%02d:%02d / %d:%02d:%02d", p / 3600, (p % 3600) / 60, p % 60, d / 3600, (d % 3600) / 60,
                    d % 60);
+    } else {
+        // < 1 jam: MM:SS
+        swprintf_s(buf, L"%02d:%02d / %02d:%02d", p / 60, p % 60, d / 60, d % 60);
     }
 
     SetWindowTextW(g_hTimeLabel, buf);
