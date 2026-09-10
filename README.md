@@ -82,6 +82,15 @@ assets/                           # Icons (play, pause, stop, skip, fullscreen)
 
 Pemisahan ini memungkinkan backend media diganti (misal ke FFmpeg/libVLC) tanpa perlu menyentuh kode GUI sama sekali.
 
+### 📚 Dokumentasi Internal
+
+Untuk penjelasan detail arsitektur internal, lihat [docs/architecture/internal/](docs/architecture/internal/):
+
+| Dokumen | Deskripsi |
+|---|---|
+| [Arsitektur Khusus Proyek](docs/architecture/internal/project-architecture.md) | Detail dua lapisan, dependency, build system, komponen |
+| [Flowchart Internal](docs/architecture/internal/app-flowchart.md) | Alur eksekusi dari WinMain hingga Destroy |
+
 ---
 
 ## 🔧 Requirements
