@@ -283,14 +283,25 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         return DefWindowProc(hwnd, uMsg, wParam, lParam);
     case WM_ACTIVATEAPP:
         if (self) {
-            if (!wParam) { // Aplikasi kehilangan fokus (misal Alt+Tab ke aplikasi lain)
-                self->HideAllSubOverlays();
+            if (!wParam) {
+                if (self->m_isClosing)
+                    return 0;
+                self->m_subsHidden = true;
+                for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
+                    if (self->m_hSubOverlay[i])
+                        ShowWindow(self->m_hSubOverlay[i], SW_HIDE);
+                }
                 self->m_lastVideoClickTick = 0;
                 if (self->m_isFullscreen) {
-                    self->ExitFullscreen(); // ← KELUAR FULLSCREEN saat Alt-Tab
+                    self->ExitFullscreen();
                 }
-            } else { // Mendapat fokus kembali
+            } else {
+                // Kembali — tampilkan overlay lagi
                 self->m_subsHidden = false;
+                for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
+                    if (self->m_hSubOverlay[i] && self->m_hSubBmp[i])
+                        ShowWindow(self->m_hSubOverlay[i], SW_SHOW);
+                }
             }
         }
         return 0;
@@ -380,6 +391,12 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             self->SetProgressPos(0);
         }
         return 0;
+
+    case WM_CLOSE:
+        if (self) {
+            self->m_isClosing = true;
+        }
+        return DefWindowProc(hwnd, uMsg, wParam, lParam);
 
     case WM_DESTROY:
         if (self->m_hModernFont)

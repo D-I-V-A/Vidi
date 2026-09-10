@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstring>
 #include <vector>
+#include <map>
 
 namespace kernelPlayerVidi {
 
@@ -347,6 +348,48 @@ void SubtitleReader::FullShutdown() {
 }
 
 // ============================================================
+// Deteksi karaoke dari raw event text
+// ============================================================
+
+static long long ExtractKaraokeDuration(const char* data, int size) {
+    if (!data || size < 4)
+        return 0;
+    std::string s(data, size);
+    long long totalCs = 0;
+    size_t pos = 0;
+    while ((pos = s.find("\\k", pos)) != std::string::npos) {
+        // Skip \kf, \ko, \kt — ambil angka setelah 'k'
+        size_t numStart = pos + 2;
+        if (numStart < s.size()) {
+            char c = s[numStart];
+            if (c == 'f' || c == 'o' || c == 't')
+                numStart++;
+        }
+        // Baca angka sampai '}' atau non-digit
+        size_t numEnd = numStart;
+        while (numEnd < s.size() && (isdigit(s[numEnd]) || s[numEnd] == '.'))
+            numEnd++;
+        if (numEnd > numStart) {
+            try {
+                double val = std::stod(s.substr(numStart, numEnd - numStart));
+                totalCs += (long long)(val + 0.5);
+            } catch (...) {
+            }
+        }
+        pos = numEnd;
+    }
+    return totalCs * 10; // centiseconds → milliseconds
+}
+
+static bool HasKaraokeTag(const char* data, int size) {
+    if (!data || size < 4)
+        return false;
+    std::string s(data, size);
+    return s.find("{\\k") != std::string::npos || s.find("{\\kf") != std::string::npos ||
+           s.find("{\\ko") != std::string::npos;
+}
+
+// ============================================================
 // Open — single pass detect + index
 // ============================================================
 
@@ -491,13 +534,21 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
 
     double tbVal = (subTimeBase.den != 0) ? (double)subTimeBase.num / subTimeBase.den : 1e-9;
 
+    // Kumpulkan semua subtitle event dulu untuk hitung durasi dari gap antar event
+    struct SubEvent {
+        std::vector<char> data;
+        long long timecodeMs;
+        bool isKaraoke;
+    };
+    std::vector<SubEvent> events;
+    events.reserve(10000);
+
     AVPacketRaw* pkt = reinterpret_cast<AVPacketRaw*>(m_ff.av_packet_alloc());
     int fed = 0;
     int fontsFed = 0;
     int subPacketsRead = 0;
     while (subPacketsRead < 100000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pkt)) >= 0) {
         int si = pkt->stream_index;
-        // [PERF] Skip packet yang bukan subtitle dan bukan attachment
         if (si != bestStream && (si < 0 || si >= MAX_STREAMS || !isAttachment[si])) {
             m_ff.av_packet_unref(reinterpret_cast<AVPacket*>(pkt));
             continue;
@@ -508,22 +559,15 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
                 int dataSize = pkt->size;
                 while (dataSize > 0 && pkt->data[dataSize - 1] == '\0')
                     dataSize--;
-
                 if (dataSize > 0) {
                     long long timecodeMs = 0;
-                    if (pkt->pts != AV_NOPTS_VALUE && pkt->pts != 0) {
+                    if (pkt->pts != AV_NOPTS_VALUE && pkt->pts != 0)
                         timecodeMs = (long long)(pkt->pts * tbVal * 1000.0);
-                    }
-                    long long durationMs = 5000;
-                    if (pkt->duration > 0) {
-                        durationMs = (long long)(pkt->duration * tbVal * 1000.0);
-                    }
-                    if (durationMs <= 0)
-                        durationMs = 5000;
-
-                    m_assRenderer.ProcessChunk(reinterpret_cast<const char*>(pkt->data), dataSize, timecodeMs,
-                                               durationMs);
-                    fed++;
+                    SubEvent ev;
+                    ev.data.assign(reinterpret_cast<char*>(pkt->data), reinterpret_cast<char*>(pkt->data) + dataSize);
+                    ev.timecodeMs = timecodeMs;
+                    ev.isKaraoke = HasKaraokeTag(ev.data.data(), static_cast<int>(ev.data.size()));
+                    events.push_back(std::move(ev));
                 }
             } else if (si >= 0 && si < MAX_STREAMS && isAttachment[si] && fontsFed < 100) {
                 const uint8_t* d = reinterpret_cast<const uint8_t*>(pkt->data);
@@ -548,7 +592,99 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
         m_ff.av_packet_unref(reinterpret_cast<AVPacket*>(pkt));
     }
     m_ff.av_packet_free(reinterpret_cast<AVPacket**>(&pkt));
-    VSubLog(L"[VIDI] Sub: fed %d packets to libass (skipped non-sub/attachment)", fed);
+
+    // Sort by timecode
+    std::sort(events.begin(), events.end(),
+              [](const SubEvent& a, const SubEvent& b) { return a.timecodeMs < b.timecodeMs; });
+
+    // Build map: timecode karaoke → durasi dari \k tags
+    std::map<long long, long long> karaokeDurMap;
+    for (size_t i = 0; i < events.size(); i++) {
+        if (events[i].isKaraoke) {
+            long long dur = ExtractKaraokeDuration(events[i].data.data(), static_cast<int>(events[i].data.size()));
+            if (dur > 0)
+                karaokeDurMap[events[i].timecodeMs] = dur;
+        }
+    }
+
+    // Diagnostic: log 10 event pertama untuk debug
+    int diagCount = (events.size() < 10) ? (int)events.size() : 10;
+    for (int i = 0; i < diagCount; i++) {
+        std::string preview(events[i].data.data(), (events[i].data.size() > 80) ? 80 : events[i].data.size());
+        VSubLog(L"[VIDI] Sub: diag[%d] t=%lld karaoke=%d data='%hs'", i, events[i].timecodeMs, events[i].isKaraoke,
+                preview.c_str());
+    }
+    VSubLog(L"[VIDI] Sub: karaokeDurMap has %d entries", (int)karaokeDurMap.size());
+    for (auto& [k, v] : karaokeDurMap) {
+        VSubLog(L"[VIDI] Sub:   karaDur t=%lld dur=%lld", k, v);
+    }
+
+    // Feed ke libass dengan durasi berbeda untuk karaoke vs translate
+    // Cap duration agar subtitle tidak stay terlalu lama
+    const long long MAX_DUR_MS = 7000;
+    const long long MIN_DUR_MS = 500;
+    int karaokeCount = 0;
+    int translateCount = 0;
+    int inheritedCount = 0;
+    for (size_t i = 0; i < events.size(); i++) {
+        long long durMs = 3000;
+        if (events[i].isKaraoke) {
+            // Karaoke: durasi dari \k tags, minimum gap ke event berikutnya
+            karaokeCount++;
+            long long karaokeDurMs =
+                ExtractKaraokeDuration(events[i].data.data(), static_cast<int>(events[i].data.size()));
+            long long gapMs = 3000;
+            if (i + 1 < events.size()) {
+                gapMs = events[i + 1].timecodeMs - events[i].timecodeMs;
+                if (gapMs <= 0)
+                    gapMs = 1000;
+            }
+            durMs = (karaokeDurMs > gapMs) ? karaokeDurMs : gapMs;
+            if (durMs > MAX_DUR_MS)
+                durMs = MAX_DUR_MS;
+            if (durMs < MIN_DUR_MS)
+                durMs = MIN_DUR_MS;
+        } else {
+            // Translate: cek apakah ada karaoke event dalam window ±500ms
+            translateCount++;
+            bool inherited = false;
+            for (auto& [kTime, kDur] : karaokeDurMap) {
+                long long diff = events[i].timecodeMs - kTime;
+                if (diff >= -500 && diff <= 500) {
+                    durMs = kDur;
+                    inherited = true;
+                    inheritedCount++;
+                    break;
+                }
+            }
+            if (inherited) {
+                if (durMs > MAX_DUR_MS)
+                    durMs = MAX_DUR_MS;
+                if (durMs < MIN_DUR_MS)
+                    durMs = MIN_DUR_MS;
+            }
+            if (!inherited) {
+                // Gap ke event berikutnya dengan timecode LEBIH BESAR
+                for (size_t j = i + 1; j < events.size(); j++) {
+                    if (events[j].timecodeMs > events[i].timecodeMs) {
+                        durMs = events[j].timecodeMs - events[i].timecodeMs;
+                        break;
+                    }
+                }
+                if (durMs <= 0)
+                    durMs = 3000;
+                if (durMs > MAX_DUR_MS)
+                    durMs = MAX_DUR_MS;
+                if (durMs < MIN_DUR_MS)
+                    durMs = MIN_DUR_MS;
+            }
+        }
+        m_assRenderer.ProcessChunk(events[i].data.data(), static_cast<int>(events[i].data.size()), events[i].timecodeMs,
+                                   durMs);
+        fed++;
+    }
+    VSubLog(L"[VIDI] Sub: fed %d events (karaoke=%d, translate=%d, inherited=%d)", fed, karaokeCount, translateCount,
+            inheritedCount);
 
     // Load fonts from attachment streams via codecpar->extradata
     {
@@ -588,9 +724,33 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
             // Log semua unique font names yang dipakai
             for (int si = 0; si < m_assRenderer.GetTrack()->n_styles; si++) {
                 auto& st = m_assRenderer.GetTrack()->styles[si];
-                if (st.FontName)
-                    VSubLog(L"[VIDI] Sub:   style[%d] Font='%hs'", si, st.FontName);
+                VSubLog(L"[VIDI] Sub:   style[%d] Name='%hs' Font='%hs' Align=%d MarginV=%d", si,
+                        st.Name ? st.Name : "?", st.FontName ? st.FontName : "?", st.Alignment, (int)st.MarginV);
             }
+        }
+    }
+
+    // Diagnostic: hitung unique style names + Effect fields
+    if (m_assRenderer.GetTrack() && m_assRenderer.GetTrack()->n_events > 0) {
+        std::map<std::string, int> styleUsage;
+        std::map<std::string, int> effectUsage;
+        for (int i = 0; i < m_assRenderer.GetTrack()->n_events; i++) {
+            auto& ev = m_assRenderer.GetTrack()->events[i];
+            if (ev.Style >= 0 && ev.Style < m_assRenderer.GetTrack()->n_styles) {
+                const char* name = m_assRenderer.GetTrack()->styles[ev.Style].Name;
+                if (name)
+                    styleUsage[name]++;
+            }
+            if (ev.Effect && ev.Effect[0])
+                effectUsage[ev.Effect]++;
+        }
+        VSubLog(L"[VIDI] Sub: unique style usage (%d styles):", (int)styleUsage.size());
+        for (auto& [name, count] : styleUsage) {
+            VSubLog(L"[VIDI] Sub:   '%hs' = %d events", name.c_str(), count);
+        }
+        VSubLog(L"[VIDI] Sub: unique effect usage (%d effects):", (int)effectUsage.size());
+        for (auto& [name, count] : effectUsage) {
+            VSubLog(L"[VIDI] Sub:   '%hs' = %d events", name.c_str(), count);
         }
     }
 
@@ -606,9 +766,14 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
     m_assRenderer.SetFrameSize(playResX, playResY);
     m_assRenderer.SetStorageSize(playResX, playResY);
     VSubLog(L"[VIDI] Sub: setting fonts...");
-    m_assRenderer.SetFonts(L"Yu Gothic", L"Yu Gothic");
+    m_assRenderer.SetFonts(L"Arial", L"Arial");
     VSubLog(L"[VIDI] Sub: setting check readorder...");
     m_assRenderer.SetCheckReadorder(false);
+    if (m_assRenderer.GetTrack()) {
+        for (int i = 0; i < m_assRenderer.GetTrack()->n_styles; i++) {
+            m_assRenderer.GetTrack()->styles[i].PrimaryColour = 0x00FFFFFF;
+        }
+    }
     VSubLog(L"[VIDI] Sub: PlayRes %dx%d", playResX, playResY);
 
     m_loaded = true;

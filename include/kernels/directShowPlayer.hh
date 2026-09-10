@@ -40,6 +40,7 @@ class DirectShowPlayer {
     std::atomic<uint32_t> m_mediaReadyGen{0};
 
     bool m_graphBuilt;
+    bool m_vsFilterSubtitleActive;
 
     void DestroyGraph();
     bool CreateGraph();
@@ -83,6 +84,9 @@ class DirectShowPlayer {
     void SetDspGain(float gain);
     bool IsSubtitlesLoaded() const {
         return m_subReader.IsLoaded();
+    }
+    bool IsVSFilterSubtitleActive() const {
+        return m_vsFilterSubtitleActive;
     }
     uint32_t GetMediaReadyGen() const {
         return m_mediaReadyGen.load();
