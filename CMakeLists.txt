@@ -115,4 +115,10 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Vidi Video & Audio Player")
 set(CPACK_GENERATOR "WIX")
 set(CPACK_WIX_UPGRADE_GUID "A1B2C3D4-E5F6-7890-ABCD-EF1234567890")
 
+# ==============================================================================
+# UNIT TESTS
+# ==============================================================================
+enable_testing()
+add_subdirectory(tests)
+
 include(CPack)
