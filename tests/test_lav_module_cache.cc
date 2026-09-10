@@ -18,15 +18,15 @@
 static int g_testsPassed = 0;
 static int g_testsFailed = 0;
 
-#define TEST_ASSERT(condition, msg)                                         \
-    do {                                                                    \
-        if (!(condition)) {                                                 \
-            printf("  FAIL: %s (line %d)\n", msg, __LINE__);               \
-            g_testsFailed++;                                                \
-        } else {                                                            \
-            printf("  PASS: %s\n", msg);                                    \
-            g_testsPassed++;                                                \
-        }                                                                   \
+#define TEST_ASSERT(condition, msg)                                                                                    \
+    do {                                                                                                               \
+        if (!(condition)) {                                                                                            \
+            printf("  FAIL: %s (line %d)\n", msg, __LINE__);                                                           \
+            g_testsFailed++;                                                                                           \
+        } else {                                                                                                       \
+            printf("  PASS: %s\n", msg);                                                                               \
+            g_testsPassed++;                                                                                           \
+        }                                                                                                              \
     } while (0)
 
 #define TEST_SECTION(name) printf("\n=== %s ===\n", name)
@@ -132,7 +132,8 @@ static void TestBenchmarkNoCache() {
             h[j] = LoadLibraryW(dllPaths[j].c_str());
         }
         for (int j = 0; j < 3; j++) {
-            if (h[j]) FreeLibrary(h[j]);
+            if (h[j])
+                FreeLibrary(h[j]);
         }
 
         auto end = std::chrono::high_resolution_clock::now();
@@ -141,12 +142,15 @@ static void TestBenchmarkNoCache() {
     }
 
     double sum = 0;
-    for (double t : timesUs) sum += t;
+    for (double t : timesUs)
+        sum += t;
     double avg = sum / timesUs.size();
     double minT = timesUs[0], maxT = timesUs[0];
     for (double t : timesUs) {
-        if (t < minT) minT = t;
-        if (t > maxT) maxT = t;
+        if (t < minT)
+            minT = t;
+        if (t > maxT)
+            maxT = t;
     }
 
     printf("  Iterations: %d\n", iterations);
@@ -196,12 +200,15 @@ static void TestBenchmarkWithCache() {
     }
 
     double sum = 0;
-    for (double t : timesUs) sum += t;
+    for (double t : timesUs)
+        sum += t;
     double avg = sum / timesUs.size();
     double minT = timesUs[0], maxT = timesUs[0];
     for (double t : timesUs) {
-        if (t < minT) minT = t;
-        if (t > maxT) maxT = t;
+        if (t < minT)
+            minT = t;
+        if (t > maxT)
+            maxT = t;
     }
 
     printf("  Iterations: %d\n", iterations);
@@ -211,7 +218,8 @@ static void TestBenchmarkWithCache() {
 
     // Cleanup
     for (int j = 0; j < 3; j++) {
-        if (cached[j]) FreeLibrary(cached[j]);
+        if (cached[j])
+            FreeLibrary(cached[j]);
     }
 }
 
@@ -242,8 +250,7 @@ static void TestGetProcAddressOverhead() {
     double totalUs = std::chrono::duration<double, std::micro>(end - start).count();
     double perCallNs = (totalUs * 1000.0) / iterations;
 
-    printf("  GetProcAddress x%d: %.1f us total, %.1f ns/call\n",
-           iterations, totalUs, perCallNs);
+    printf("  GetProcAddress x%d: %.1f us total, %.1f ns/call\n", iterations, totalUs, perCallNs);
 
     // GetProcAddress harus cepat (< 1us per call)
     TEST_ASSERT(perCallNs < 1000, "GetProcAddress < 1000 ns/call");
@@ -281,7 +288,8 @@ static void TestSimulatedOpenFileCycle() {
             }
         }
         for (int j = 0; j < 3; j++) {
-            if (h[j]) FreeLibrary(h[j]);
+            if (h[j])
+                FreeLibrary(h[j]);
         }
     }
     auto t2 = std::chrono::high_resolution_clock::now();
@@ -308,7 +316,8 @@ static void TestSimulatedOpenFileCycle() {
 
     // Cleanup
     for (int j = 0; j < 3; j++) {
-        if (cached[j]) FreeLibrary(cached[j]);
+        if (cached[j])
+            FreeLibrary(cached[j]);
     }
 
     double beforeUs = std::chrono::duration<double, std::micro>(t2 - t1).count();
@@ -388,13 +397,15 @@ static void TestVSFilterFallback() {
     if (exists1) {
         HMODULE h1 = LoadLibraryW(vsPath1.c_str());
         TEST_ASSERT(h1 != nullptr, "VSFilter.dll load berhasil");
-        if (h1) FreeLibrary(h1);
+        if (h1)
+            FreeLibrary(h1);
     }
 
     if (exists2) {
         HMODULE h2 = LoadLibraryW(vsPath2.c_str());
         TEST_ASSERT(h2 != nullptr, "xy-VSFilter.dll load berhasil");
-        if (h2) FreeLibrary(h2);
+        if (h2)
+            FreeLibrary(h2);
     }
 
     // Test: Jika VSFilter.dll di-cache lalu xy-VSFilter.dll dipanggil
