@@ -70,6 +70,19 @@ struct AVFormatContextCompat {
     char _pad[512];
 };
 
+struct AVPacketRaw {
+    void* buf;
+    int64_t pts;
+    int64_t dts;
+    uint8_t* data;
+    int size;
+    int stream_index;
+    int flags;
+    int64_t duration;
+    int64_t pos;
+    char _pad[256];
+};
+
 enum AVMediaType {
     AVMEDIA_TYPE_UNKNOWN = -1,
     AVMEDIA_TYPE_VIDEO,

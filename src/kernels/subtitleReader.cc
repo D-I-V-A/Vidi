@@ -100,23 +100,6 @@ static std::vector<std::string> ExtractTtfFontNames(const uint8_t* data, int siz
 #endif
 
 // ============================================================
-// AVPacket layout for LAV-patched FFmpeg (avcodec-lav-62)
-// ============================================================
-
-struct AVPacketRaw {
-    void* buf;
-    int64_t pts;
-    int64_t dts;
-    uint8_t* data;
-    int size;
-    int stream_index;
-    int flags;
-    int64_t duration;
-    int64_t pos;
-    char _pad[256];
-};
-
-// ============================================================
 // Helpers
 // ============================================================
 
@@ -408,8 +391,8 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
         AVPacketRaw* pktFb = reinterpret_cast<AVPacketRaw*>(m_ff.av_packet_alloc());
         int textCounts[MAX_STREAMS] = {};
         int totalPackets[MAX_STREAMS] = {};
-        int scanned = 0;
-        while (scanned < 5000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pktFb)) >= 0) {
+        int subPacketFed = 0;
+        while (subPacketFed < 5000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pktFb)) >= 0) {
             int si = pktFb->stream_index;
             if (si >= 0 && si < MAX_STREAMS) {
                 totalPackets[si]++;
@@ -417,7 +400,7 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
                     textCounts[si]++;
             }
             m_ff.av_packet_unref(reinterpret_cast<AVPacket*>(pktFb));
-            scanned++;
+            subPacketFed++;
         }
         m_ff.av_seek_frame(m_fmtCtx, -1, 0, 0);
         for (int i = 0; i < MAX_STREAMS; ++i) {
@@ -511,15 +494,15 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
     AVPacketRaw* pkt = reinterpret_cast<AVPacketRaw*>(m_ff.av_packet_alloc());
     int fed = 0;
     int fontsFed = 0;
-    int scanned = 0;
-    while (scanned < 100000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pkt)) >= 0) {
+    int subPacketsRead = 0;
+    while (subPacketsRead < 100000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pkt)) >= 0) {
         int si = pkt->stream_index;
         // [PERF] Skip packet yang bukan subtitle dan bukan attachment
         if (si != bestStream && (si < 0 || si >= MAX_STREAMS || !isAttachment[si])) {
             m_ff.av_packet_unref(reinterpret_cast<AVPacket*>(pkt));
-            scanned++;
             continue;
         }
+        subPacketsRead++;
         if (pkt->data && pkt->size > 0) {
             if (si == bestStream) {
                 int dataSize = pkt->size;
@@ -563,7 +546,6 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
             }
         }
         m_ff.av_packet_unref(reinterpret_cast<AVPacket*>(pkt));
-        scanned++;
     }
     m_ff.av_packet_free(reinterpret_cast<AVPacket**>(&pkt));
     VSubLog(L"[VIDI] Sub: fed %d packets to libass (skipped non-sub/attachment)", fed);
