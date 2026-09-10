@@ -105,10 +105,10 @@ Project ini menggunakan `.clang-format` dengan gaya **Microsoft**. Jalankan sebe
 clang-format -i <file>
 ```
 
-Atau format semua file:
+Atau format semua file (PowerShell):
 
-```bash
-find . -name "*.cc" -o -name "*.hh" | xargs clang-format -i
+```powershell
+Get-ChildItem -Recurse src,include -Include *.cc,*.hh | ForEach-Object { clang-format -i $_.FullName }
 ```
 
 ### Konfigurasi `.clang-format`
@@ -181,8 +181,7 @@ Vidi/
 ├── filters/                # LAV Filters (bundled)
 ├── assets/                 # Icons
 ├── docs/                   # Documentation
-│   ├── CONTRIBUTING.md
-│   └── API.md
+│   └── CONTRIBUTING.md
 ├── .github/workflows/      # CI/CD
 ├── CMakeLists.txt
 ├── CMakePresets.json
