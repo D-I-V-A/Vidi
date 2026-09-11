@@ -44,6 +44,12 @@ void VideoPlayerGUI::EnterFullscreen() {
     SetWindowPos(g_hMainWnd, HWND_TOPMOST, mi.rcMonitor.left, mi.rcMonitor.top, monW, monH,
                  SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
 
+    for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
+        if (m_hSubOverlay[i]) {
+            SetWindowPos(m_hSubOverlay[i], HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+
     SendMessage(g_hMainWnd, WM_SETREDRAW, TRUE, 0);
     RedrawWindow(g_hMainWnd, nullptr, nullptr,
                  RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
