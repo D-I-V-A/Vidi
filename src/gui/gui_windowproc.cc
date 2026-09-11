@@ -272,11 +272,7 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         return 0;
     case WM_ACTIVATE:
         if (self && self->m_isFullscreen) {
-            if (wParam == WA_INACTIVE) {
-                // Kehilangan fokus
-                PostMessage(hwnd, WM_APP_FS_DEACTIVATE, 0, 0);
-            } else {
-                // Mendapat fokus
+            if (wParam != WA_INACTIVE) {
                 PostMessage(hwnd, WM_APP_FS_ACTIVATE, 0, 0);
             }
         }
@@ -292,11 +288,7 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
                         ShowWindow(self->m_hSubOverlay[i], SW_HIDE);
                 }
                 self->m_lastVideoClickTick = 0;
-                if (self->m_isFullscreen) {
-                    self->ExitFullscreen();
-                }
             } else {
-                // Kembali — tampilkan overlay lagi
                 self->m_subsHidden = false;
                 for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
                     if (self->m_hSubOverlay[i] && self->m_hSubBmp[i])
@@ -307,7 +299,7 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         return 0;
 
     case WM_APP_FS_DEACTIVATE:
-        if (self && self->m_isFullscreen) {
+        if (self && self->m_isFullscreen && !self->m_isClosing) {
             self->ExitFullscreen();
         }
         return 0;
@@ -391,7 +383,12 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             self->SetProgressPos(0);
         }
         return 0;
-
+    case WM_SYSKEYDOWN:
+        if (wParam == VK_F4 && (GetAsyncKeyState(VK_MENU) & 0x8000)) {
+            SendMessage(hwnd, WM_CLOSE, 0, 0);
+            return 0;
+        }
+        break;
     case WM_SYSCOMMAND:
         if ((wParam & 0xFFF0) == SC_CLOSE) {
             if (self)
