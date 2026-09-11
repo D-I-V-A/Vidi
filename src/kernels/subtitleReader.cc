@@ -806,15 +806,18 @@ std::vector<SubtitleInfo> SubtitleReader::GetSubtitleStreams() const {
     return result;
 }
 
-std::vector<SubtitleReader::RenderedBitmap> SubtitleReader::RenderFrame(double timeSeconds) {
-    std::vector<RenderedBitmap> result;
+RenderResult SubtitleReader::RenderFrame(double timeSeconds) {
+    RenderResult result;
+    result.changed = false;
     if (!m_loaded)
         return result;
 
     long long timeMs = (long long)(timeSeconds * 1000.0);
-    auto assImages = m_assRenderer.RenderFrame(timeMs);
+    auto assResult = m_assRenderer.RenderFrame(timeMs);
 
-    for (auto& img : assImages) {
+    result.changed = assResult.changed;
+
+    for (auto& img : assResult.bitmaps) {
         RenderedBitmap rb;
         rb.x = img.x;
         rb.y = img.y;
@@ -822,11 +825,12 @@ std::vector<SubtitleReader::RenderedBitmap> SubtitleReader::RenderFrame(double t
         rb.height = img.height;
         rb.color = img.color;
         rb.bitmap = std::move(img.bitmap);
-        result.push_back(std::move(rb));
+        result.bitmaps.push_back(std::move(rb));
     }
     static double lastLogTime = -2.0;
     if (timeSeconds - lastLogTime >= 2.0) {
-        VSubLog(L"[VIDI] Sub: RenderFrame(%.1fs -> %lld ms) => %d bitmaps", timeSeconds, timeMs, (int)result.size());
+        VSubLog(L"[VIDI] Sub: RenderFrame(%.1fs -> %lld ms) => %d bitmaps changed=%d", timeSeconds, timeMs,
+                (int)result.bitmaps.size(), result.changed);
         lastLogTime = timeSeconds;
     }
     return result;

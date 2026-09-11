@@ -17,6 +17,11 @@ struct RenderedBitmap {
     std::vector<uint8_t> bitmap; // alpha-only 8-bit
 };
 
+struct RenderResult {
+    std::vector<RenderedBitmap> bitmaps;
+    bool changed;
+};
+
 class AssRenderer {
   private:
     ASS_Library* m_library;
@@ -47,7 +52,7 @@ class AssRenderer {
     void AddFont(const char* name, const char* data, int dataSize);
     void ClearFonts();
 
-    std::vector<RenderedBitmap> RenderFrame(long long timeMs);
+    RenderResult RenderFrame(long long timeMs);
     ASS_Track* GetTrack() {
         return m_track;
     }

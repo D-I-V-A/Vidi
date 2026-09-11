@@ -156,14 +156,15 @@ void AssRenderer::ClearFonts() {
         ass_clear_fonts(m_library);
 }
 
-std::vector<RenderedBitmap> AssRenderer::RenderFrame(long long timeMs) {
-    std::vector<RenderedBitmap> result;
+RenderResult AssRenderer::RenderFrame(long long timeMs) {
+    RenderResult result;
+    result.changed = false;
     if (!m_renderer || !m_track)
         return result;
 
     int detectChange = 0;
     ASS_Image* img = ass_render_frame(m_renderer, m_track, timeMs, &detectChange);
-
+    result.changed = (detectChange != 0);
     while (img) {
         if (img->w > 0 && img->h > 0) {
             RenderedBitmap rb;
@@ -177,7 +178,7 @@ std::vector<RenderedBitmap> AssRenderer::RenderFrame(long long timeMs) {
                 rb.bitmap.insert(rb.bitmap.end(), img->bitmap + y * img->stride,
                                  img->bitmap + y * img->stride + img->w);
             }
-            result.push_back(std::move(rb));
+            result.bitmaps.push_back(std::move(rb));
         }
         img = img->next;
     }
