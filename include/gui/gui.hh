@@ -73,6 +73,10 @@ class VideoPlayerGUI {
     int m_lastUsedOverlays = 0;
     uint32_t m_lastMediaReadyGen = 0;
     size_t m_lastSubContentHash = 0;
+    int m_lastSubFrameW = 0;
+    int m_lastSubFrameH = 0;
+    DWORD m_lastSubRenderTick = 0;
+    bool m_subNeedsUpdate = false;
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void CreateMenuBar(HWND hwnd);
     void LayoutControls(int width, int height);

@@ -61,14 +61,7 @@ class SubtitleReader {
         return m_assRenderer;
     }
 
-    // Untuk gui.cc render
-    struct RenderedBitmap {
-        int x, y, width, height;
-        uint32_t color;
-        std::vector<uint8_t> bitmap;
-    };
-    std::vector<RenderedBitmap> RenderFrame(double timeSeconds);
+    RenderResult RenderFrame(double timeSeconds);
 };
-
 } // namespace kernelPlayerVidi
 #endif

@@ -35,6 +35,8 @@ void VideoPlayerGUI::CreateSubtitleOverlay(HWND hwnd) {
 void VideoPlayerGUI::HideAllSubOverlays() {
     m_subsHidden = true;
     m_lastSubContentHash = 0;
+    m_lastSubRenderTick = 0;
+    m_subNeedsUpdate = false;
     for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
         if (m_hSubOverlay[i])
             ShowWindow(m_hSubOverlay[i], SW_HIDE);
@@ -62,6 +64,14 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
         return;
     }
 
+    DWORD now = GetTickCount();
+    if (now - m_lastSubRenderTick < 50 && m_lastSubRenderTick != 0) {
+        if (m_hSubBmp[0] && m_subNeedsUpdate)
+            ShowWindow(m_hSubOverlay[0], SW_SHOW);
+        return;
+    }
+    m_lastSubRenderTick = now;
+
     RECT videoRC = {};
     if (g_hVideoArea)
         GetClientRect(g_hVideoArea, &videoRC);
@@ -88,13 +98,24 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
         ShowWindow(m_hSubOverlay[0], SW_HIDE);
         return;
     }
-    m_player.GetSubtitleReader().GetAssRenderer().SetStorageSize(contentW, contentH);
-    m_player.GetSubtitleReader().GetAssRenderer().SetFrameSize(contentW, contentH);
 
-    auto bitmaps = m_player.GetSubtitleReader().RenderFrame(posSeconds);
+    if (contentW != m_lastSubFrameW || contentH != m_lastSubFrameH) {
+        m_player.GetSubtitleReader().GetAssRenderer().SetStorageSize(contentW, contentH);
+        m_player.GetSubtitleReader().GetAssRenderer().SetFrameSize(contentW, contentH);
+        m_lastSubFrameW = contentW;
+        m_lastSubFrameH = contentH;
+    }
 
-    if (bitmaps.empty()) {
+    auto renderResult = m_player.GetSubtitleReader().RenderFrame(posSeconds);
+
+    if (renderResult.bitmaps.empty()) {
         ShowWindow(m_hSubOverlay[0], SW_HIDE);
+        m_subNeedsUpdate = false;
+        return;
+    }
+
+    if (!renderResult.changed && m_hSubBmp[0] && m_subNeedsUpdate) {
+        ShowWindow(m_hSubOverlay[0], SW_SHOW);
         return;
     }
 
@@ -120,7 +141,7 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
 
     memset(m_pSubBmpBits[0], 0, contentW * contentH * 4);
 
-    for (auto& b : bitmaps) {
+    for (auto& b : renderResult.bitmaps) {
         uint32_t c = b.color;
         BYTE srcA = (c >> 24) & 0xFF;
         BYTE srcR = c & 0xFF;
@@ -175,6 +196,7 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     DeleteDC(hMemDC);
     ShowWindow(m_hSubOverlay[0], SW_SHOW);
     ReleaseDC(NULL, hdcScreen);
+    m_subNeedsUpdate = true;
 }
 
 } // namespace guiVidi
