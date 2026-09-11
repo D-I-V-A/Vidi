@@ -392,6 +392,13 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         }
         return 0;
 
+    case WM_SYSCOMMAND:
+        if ((wParam & 0xFFF0) == SC_CLOSE) {
+            if (self)
+                self->m_isClosing = true;
+        }
+        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+
     case WM_CLOSE:
         if (self) {
             self->m_isClosing = true;
@@ -414,6 +421,13 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             if (self->m_hSubBmp[i]) {
                 DeleteObject(self->m_hSubBmp[i]);
                 self->m_hSubBmp[i] = nullptr;
+            }
+        }
+        for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
+            if (self->m_hSubOverlay[i]) {
+                ShowWindow(self->m_hSubOverlay[i], SW_HIDE);
+                DestroyWindow(self->m_hSubOverlay[i]);
+                self->m_hSubOverlay[i] = nullptr;
             }
         }
         WTSUnRegisterSessionNotification(hwnd);
