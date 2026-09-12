@@ -272,7 +272,14 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         return 0;
     case WM_ACTIVATE:
         if (self && self->m_isFullscreen) {
-            if (wParam != WA_INACTIVE) {
+            if (wParam == WA_INACTIVE) {
+                SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
+                for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
+                    if (self->m_hSubOverlay[i])
+                        ShowWindow(self->m_hSubOverlay[i], SW_HIDE);
+                }
+            } else {
                 PostMessage(hwnd, WM_APP_FS_ACTIVATE, 0, 0);
             }
         }
@@ -333,8 +340,14 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
                     self->LayoutFullscreen(rcClient.right, rcClient.bottom);
                 }
             }
-            // Hapus panggilan RecoverVideo() – tidak diperlukan
-            // self->RecoverVideo();
+            // Restore subtitle yang di-hide saat WA_INACTIVE
+            if (self->m_subsHidden) {
+                self->m_subsHidden = false;
+                for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
+                    if (self->m_hSubOverlay[i] && self->m_hSubBmp[i])
+                        ShowWindow(self->m_hSubOverlay[i], SW_SHOW);
+                }
+            }
         }
         return 0;
 
