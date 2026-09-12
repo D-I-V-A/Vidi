@@ -38,6 +38,8 @@ void VideoPlayerGUI::EnterFullscreen() {
         OutputDebugStringW(dbg);
     }
     SetWindowLong(g_hMainWnd, GWL_STYLE, (style & ~WS_OVERLAPPEDWINDOW) | WS_POPUP);
+    DWORD exStyle = GetWindowLong(g_hMainWnd, GWL_EXSTYLE);
+    SetWindowLong(g_hMainWnd, GWL_EXSTYLE, exStyle | WS_EX_APPWINDOW);
     if (m_hMenuBar)
         SetMenu(g_hMainWnd, nullptr);
 
@@ -81,6 +83,8 @@ void VideoPlayerGUI::ExitFullscreen() {
 
     DWORD style = GetWindowLong(g_hMainWnd, GWL_STYLE);
     SetWindowLong(g_hMainWnd, GWL_STYLE, (style & ~WS_POPUP) | WS_OVERLAPPEDWINDOW);
+    DWORD exStyle = GetWindowLong(g_hMainWnd, GWL_EXSTYLE);
+    SetWindowLong(g_hMainWnd, GWL_EXSTYLE, exStyle & ~WS_EX_APPWINDOW);
     if (m_hMenuBar)
         SetMenu(g_hMainWnd, m_hMenuBar);
     if (!SetWindowPlacement(g_hMainWnd, &m_prevPlacement)) {
