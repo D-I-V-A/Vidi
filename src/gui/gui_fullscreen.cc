@@ -38,11 +38,19 @@ void VideoPlayerGUI::EnterFullscreen() {
         OutputDebugStringW(dbg);
     }
     SetWindowLong(g_hMainWnd, GWL_STYLE, (style & ~WS_OVERLAPPEDWINDOW) | WS_POPUP);
+    DWORD exStyle = GetWindowLong(g_hMainWnd, GWL_EXSTYLE);
+    SetWindowLong(g_hMainWnd, GWL_EXSTYLE, exStyle | WS_EX_APPWINDOW);
     if (m_hMenuBar)
         SetMenu(g_hMainWnd, nullptr);
 
     SetWindowPos(g_hMainWnd, HWND_TOPMOST, mi.rcMonitor.left, mi.rcMonitor.top, monW, monH,
                  SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+
+    for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
+        if (m_hSubOverlay[i]) {
+            SetWindowPos(m_hSubOverlay[i], HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
 
     SendMessage(g_hMainWnd, WM_SETREDRAW, TRUE, 0);
     RedrawWindow(g_hMainWnd, nullptr, nullptr,
@@ -74,10 +82,20 @@ void VideoPlayerGUI::ExitFullscreen() {
     SendMessage(g_hMainWnd, WM_SETREDRAW, FALSE, 0);
 
     DWORD style = GetWindowLong(g_hMainWnd, GWL_STYLE);
-    SetWindowLong(g_hMainWnd, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
+    SetWindowLong(g_hMainWnd, GWL_STYLE, (style & ~WS_POPUP) | WS_OVERLAPPEDWINDOW);
+    DWORD exStyle = GetWindowLong(g_hMainWnd, GWL_EXSTYLE);
+    SetWindowLong(g_hMainWnd, GWL_EXSTYLE, exStyle & ~WS_EX_APPWINDOW);
     if (m_hMenuBar)
         SetMenu(g_hMainWnd, m_hMenuBar);
-    SetWindowPlacement(g_hMainWnd, &m_prevPlacement);
+    if (!SetWindowPlacement(g_hMainWnd, &m_prevPlacement)) {
+        HMONITOR mon = MonitorFromWindow(g_hMainWnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = {sizeof(mi)};
+        if (GetMonitorInfo(mon, &mi)) {
+            RECT r = mi.rcWork;
+            SetWindowPos(g_hMainWnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        }
+    }
 
     SetWindowPos(g_hMainWnd, HWND_NOTOPMOST, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);

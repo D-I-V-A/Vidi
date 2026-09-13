@@ -42,6 +42,10 @@ HACCEL VideoPlayerGUI::CreatePlayerAccelTable() {
 int VideoPlayerGUI::Run() {
     MSG msg = {};
     while (GetMessage(&msg, NULL, 0, 0)) {
+        if (msg.message == WM_SYSKEYDOWN && msg.wParam == VK_F4 && (GetAsyncKeyState(VK_MENU) & 0x8000)) {
+            SendMessage(g_hMainWnd, WM_CLOSE, 0, 0);
+            continue;
+        }
         if (!TranslateAccelerator(g_hMainWnd, m_hAccel, &msg)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);

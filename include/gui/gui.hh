@@ -69,9 +69,14 @@ class VideoPlayerGUI {
     HFONT m_hSubFont;
     std::map<int, HFONT> m_subFontCache;
     bool m_subsHidden;
+    bool m_isClosing;
     int m_lastUsedOverlays = 0;
     uint32_t m_lastMediaReadyGen = 0;
     size_t m_lastSubContentHash = 0;
+    int m_lastSubFrameW = 0;
+    int m_lastSubFrameH = 0;
+    DWORD m_lastSubRenderTick = 0;
+    bool m_subNeedsUpdate = false;
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void CreateMenuBar(HWND hwnd);
     void LayoutControls(int width, int height);
@@ -179,6 +184,7 @@ class VideoPlayerGUI {
           m_hSubBmp{nullptr, nullptr},
           m_pSubBmpBits{nullptr, nullptr},
           m_subsHidden(false),
+          m_isClosing(false),
           m_prevPlacement{sizeof(WINDOWPLACEMENT)} {
         for (int i = 0; i < MAX_SUB_OVERLAYS; ++i)
             m_hSubOverlay[i] = nullptr;

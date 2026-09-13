@@ -178,7 +178,8 @@ DirectShowPlayer::DirectShowPlayer()
       m_hLavVideoDll(nullptr),
       m_hLavAudioDll(nullptr),
       m_hVSFilterDll(nullptr),
-      m_hSubThread(nullptr) {}
+      m_hSubThread(nullptr),
+      m_vsFilterSubtitleActive(false) {}
 
 DirectShowPlayer::~DirectShowPlayer() {
     Shutdown();
@@ -570,6 +571,7 @@ void DirectShowPlayer::DestroyGraph() {
 
     m_subReader.Close();
     m_graphBuilt = false;
+    m_vsFilterSubtitleActive = false;
 }
 
 IBaseFilter* DirectShowPlayer::FindFilterByName(const wchar_t* name) {
@@ -864,11 +866,6 @@ bool DirectShowPlayer::OpenFile(const wchar_t* path) {
                             }
 
                             if (rendered) {
-                                if (pSubPin && vsSubIn) {
-                                    hr = m_pGraph->ConnectDirect(pSubPin, vsSubIn, nullptr);
-                                    swprintf_s(dbg, L"[VIDI] Connect subtitle->VSFilter hr=0x%08X\n", (unsigned int)hr);
-                                    OutputDebugString(dbg);
-                                }
                                 vsPathOk = true;
                                 renderOkCount++;
                             } else {

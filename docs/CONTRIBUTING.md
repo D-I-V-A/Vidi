@@ -1,227 +1,340 @@
 # Contributing to Vidi
 
-Terima kasih sudah tertarik untuk berkontribusi di Vidi! Berikut panduan untuk memulai.
+Terima kasih atas minat Anda untuk berkontribusi pada Vidi! Dokumen ini menjelaskan cara memulai, aturan development, dan proses pull request.
 
 ---
 
-## 🚀 Development Environment Setup
+## 📋 Daftar Isi
 
-### Prerequisites
+- [Persyaratan](#persyaratan)
+- [Setup Development](#setup-development)
+- [Branching Strategy](#branching-strategy)
+- [Commit Convention](#commit-convention)
+- [Code Style](#code-style)
+- [Pull Request Process](#pull-request-process)
+- [Bug Report](#bug-report)
+- [Feature Request](#feature-request)
 
-| Tool | Version | Notes |
+---
+
+## Persyaratan
+
+| Kebutuhan | Minimum | Direkomendasikan |
 |---|---|---|
-| **Visual Studio 2022** | Latest | Dengan workload "Desktop development with C++" |
-| **CMake** | ≥ 3.15 | Sudah ter-bundl dengan VS 2022 |
-| **vcpkg** | Latest | Package manager untuk C/C++ |
-| **Git** | Latest | Version control |
-
-### Setup
-
-1. **Clone repository:**
-   ```bash
-   git clone https://github.com/D-I-V-A/Vidi.git
-   cd Vidi
-   ```
-
-2. **Install vcpkg (kalau belum):**
-   ```bash
-   git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-   C:\vcpkg\bootstrap-vcpkg.bat
-   setx VCPKG_ROOT "C:\vcpkg"
-   ```
-
-3. **Install dependencies:**
-   ```bash
-   C:\vcpkg\vcpkg install
-   ```
-
-4. **Build:**
-   ```bash
-   cmake -B build --preset vcpkg
-   cmake --build build --config Release
-   ```
+| **OS** | Windows 10 | Windows 11 |
+| **Compiler** | Visual Studio 2022 (MSVC) + Windows SDK | Visual Studio 2022 (latest) |
+| **CMake** | ≥ 3.15 | ≥ 3.20 |
+| **vcpkg** | Latest | Latest |
+| **Git** | Latest | Latest |
 
 ---
 
-## 🌿 Branching Strategy
+## Setup Development
+
+### 1. Fork & Clone Repository
+
+```bash
+# Fork repository di GitHub, lalu clone
+git clone https://github.com/USERNAME/Vidi.git
+cd Vidi
+```
+
+### 2. Install vcpkg
+
+```bash
+git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+C:\vcpkg\bootstrap-vcpkg.bat
+setx VCPKG_ROOT "C:\vcpkg"
+```
+
+### 3. Install Dependencies
+
+```bash
+C:\vcpkg\vcpkg install
+```
+
+### 4. Build
+
+```bash
+cmake -B build --preset vcpkg
+cmake --build build --config Release
+```
+
+### 5. Verify
+
+```bash
+# Jalankan executable
+build\Release\Vidi.exe
+```
+
+---
+
+## Branching Strategy
 
 ```
-main          ← production, release branch
-  └── development  ← integration branch
-        ├── feat/*     ← fitur baru
-        ├── fix/*      ← bug fix
-        └── docs/*     ← dokumentasi
+main
+├── development          # Branch integrasi
+│   ├── feature/xxx      # Fitur baru
+│   ├── fix/xxx          # Bug fix
+│   └── refactor/xxx     # Refaktorasi
 ```
 
-| Branch | Purpose | CI/CD |
+| Branch | Deskripsi | Protect |
 |---|---|---|
-| `main` | Release, production-ready | Build + Release installer |
-| `development` | Integration branch | Clang-format check |
-| `feat/*` | Fitur baru | Clang-format check |
-| `fix/*` | Bug fix | Clang-format check |
-| `docs/*` | Dokumentasi | Clang-format check |
+| `main` | Branch production, stabil | ✅ |
+| `development` | Branch integrasi untuk testing | ⚠️ |
+| `feature/xxx` | Branch untuk fitur baru | ❌ |
+| `fix/xxx` | Branch untuk perbaikan bug | ❌ |
+
+### Workflow
+
+1. Buat branch dari `development`
+2. Develop fitur/fix
+3. Push dan buat PR ke `development`
+4. Setelah review, merge ke `development`
+5. Ketika stabil, `development` di-merge ke `main`
 
 ---
 
-## 📝 Commit Message Convention
+## Commit Convention
 
-Format:
+Gunakan format **Conventional Commits**:
 
 ```
-<type>: <description>
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer]
 ```
 
 ### Type
 
-| Type | Keterangan |
+| Type | Deskripsi |
 |---|---|
 | `feat` | Fitur baru |
-| `fix` | Bug fix |
+| `fix` | Perbaikan bug |
+| `docs` | Perubahan dokumentasi |
+| `style` | Perubahan format (tidak mempengaruhi kode) |
+| `refactor` | Refaktorasi (bukan fitur baru/bukan perbaikan bug) |
+| `perf` | Optimasi performa |
+| `test` | Menambahkan/memperbaiki test |
+| `chore` | Maintenance (build, CI, dll) |
+
+### Scope
+
+| Scope | Deskripsi |
+|---|---|
+| `gui` | GUI layer (window, controls) |
+| `kernel` | Kernel layer (player, subtitle) |
+| `build` | Build system (CMake) |
+| `ci` | CI/CD pipeline |
 | `docs` | Dokumentasi |
-| `style` | Format code (clang-format) |
-| `refactor` | Refactor tanpa mengubah behavior |
-| `ci` | CI/CD changes |
-| `chore` | Maintenance tasks |
 
 ### Contoh
 
-```
-feat: add subtitle overlay rendering
-fix: fullscreen render outside app window
-docs: update README with dual backend architecture
-style: apply clang-format to all source files
-ci: fix cmake build by adding vcpkg and libass setup
+```bash
+# Fitur baru
+git commit -m "feat(gui): add playlist support"
+
+# Perbaikan bug
+git commit -m "fix(kernel): resolve subtitle sync issue"
+
+# Dokumentasi
+git commit -m "docs: update architecture documentation"
+
+# Refaktorasi
+git commit -m "refactor(gui): simplify fullscreen toggle"
 ```
 
 ---
 
-## 🎨 Code Style
+## Code Style
 
-### Clang-Format
+### Clang Format
 
-Project ini menggunakan `.clang-format` dengan gaya **Microsoft**. Jalankan sebelum commit:
+```yaml
+# .clang-format
+BasedOnStyle: Microsoft
+IndentWidth: 4
+ColumnLimit: 120
+PointerAlignment: Left
+SortIncludes: false  # Windows.h ordering sensitivity
+```
+
+### Jalankan Format Check
 
 ```bash
-clang-format -i <file>
+# Dry run (cek saja, tidak mengubah)
+clang-format --dry-run --Werror src/**/*.cc include/**/*.hh
+
+# Format semua file
+clang-format -i src/**/*.cc include/**/*.hh
 ```
 
-Atau format semua file:
+### Naming Conventions
 
-```bash
-find . -name "*.cc" -o -name "*.hh" | xargs clang-format -i
+| Jenis | Konvensi | Contoh |
+|---|---|---|
+| Class | PascalCase | `VideoPlayerGUI`, `DirectShowPlayer` |
+| Method | PascalCase | `Initialize()`, `OpenFile()`, `Play()` |
+| Member Variable | Hungarian + camelCase | `m_player`, `g_hPlayBtn`, `m_isPlaying` |
+| Constant | UPPER_SNAKE_CASE | `MAX_SUB_OVERLAYS`, `TIMER_ID` |
+| Namespace | camelCase + suffix | `guiVidi`, `kernelPlayerVidi` |
+| File | snake_case | `gui_windowproc.cc`, `directShowPlayer.cc` |
+
+### Header Guards
+
+```cpp
+// Traditional include guards (not #pragma once)
+#ifndef GUI_HH
+#define GUI_HH
+
+// ... declarations
+
+#endif // GUI_HH
 ```
-
-### Konfigurasi `.clang-format`
-
-- `IndentWidth`: 4
-- `ColumnLimit`: 120
-- `BreakBeforeBraces`: Attach
-- `PointerAlignment`: Left
-- `SortIncludes`: Never (Windows.h harus di atas)
-
-### Naming Convention
-
-| Element | Convention | Contoh |
-|---|---|---|
-| Class | PascalCase | `DirectShowPlayer` |
-| Method | PascalCase | `OpenFile()`, `SetVolume()` |
-| Member variable | `m_` prefix | `m_pPlayer`, `m_hWnd` |
-| Constant | UPPER_SNAKE_CASE | `COLOR_MODERN_BG` |
-| Namespace | camelCase | `guiVidi`, `kernelPlayerVidi` |
-
-### Pointer/COM Naming
-
-| Prefix | Keterangan | Contoh |
-|---|---|---|
-| `m_p` | COM interface pointer | `m_pPlayer`, `m_pGraph` |
-| `m_h` | Handle | `m_hWnd`, `m_hVideoWnd` |
-| `m_b` | Boolean | `m_isPlaying` |
-| `g_` | Global/member di GUI | `g_hPlayBtn` |
 
 ---
 
-## 🔄 Pull Request Workflow
+## Pull Request Process
 
-1. **Buat branch baru** dari `development`:
+### Sebelum Submit PR
+
+1. **Pastikan build berhasil**
    ```bash
-   git checkout development
-   git checkout -b feat/nama-fitur
+   cmake --build build --config Release
    ```
 
-2. **Buat perubahan** dan commit:
+2. **Jalankan clang-format**
    ```bash
-   git add -A
-   git commit -m "feat: deskripsi"
+   clang-format --dry-run --Werror src/**/*.cc include/**/*.hh
    ```
 
-3. **Push** dan buka PR:
+3. **Update dokumentasi** jika ada perubahan signifikan
+
+4. **Commit dengan format yang benar**
    ```bash
-   git push origin feat/nama-fitur
+   git commit -m "feat(scope): description"
    ```
 
-4. **Buka PR** ke branch `development`.
+### Format PR
 
-5. **Tunggu CI pass** (clang-format check).
+```markdown
+## Deskripsi
+Deskripsi singkat tentang perubahan
 
-6. **Merge** setelah review (kalau ada) dan CI green.
+## Jenis Perubahan
+- [ ] Fitur baru
+- [ ] Perbaikan bug
+- [ ] Refaktorasi
+- [ ] Dokumentasi
+- [ ] Lainnya
+
+## Checklist
+- [ ] Build berhasil
+- [ ] Tidak ada warning
+- [ ] Code review selesai
+- [ ] Dokumentasi diupdate (jika perlu)
+
+## Screenshot (jika ada perubahan UI)
+```
+
+### Review Process
+
+1. PR akan direview oleh maintainer
+2. Perbaikan mungkin diminta
+3. Setelah approve, PR akan di-merge
 
 ---
 
-## 🏗️ Project Structure
+## Bug Report
+
+### Format Bug Report
+
+```markdown
+## Deskripsi
+Deskripsi singkat bug
+
+## Steps to Reproduce
+1. Buka Vidi
+2. Klik '...'
+3. Error muncul
+
+## Expected Behavior
+Apa yang diharapkan terjadi
+
+## Actual Behavior
+Apa yang sebenarnya terjadi
+
+## Environment
+- OS: Windows 10/11
+- Version: v0.1-alpha
+- GPU: (jika relevan)
+
+## Additional Context
+Screenshot, logs, atau informasi lain
+```
+
+---
+
+## Feature Request
+
+### Format Feature Request
+
+```markdown
+## Deskripsi
+Deskripsi fitur yang diinginkan
+
+## Use Case
+Mengapa fitur ini dibutuhkan?
+
+## Proposed Solution
+Solusi yang diusulkan (jika ada)
+
+## Alternatives
+Alternatif yang dipertimbangkan
+
+## Additional Context
+Screenshot, referensi, atau informasi lain
+```
+
+---
+
+## 📁 Struktur Proyek
 
 ```
 Vidi/
 ├── src/                    # Source files
-│   ├── main.cc
-│   ├── gui/                # GUI layer (guiVidi)
-│   └── kernels/            # Backend layer (kernelPlayerVidi)
+│   ├── main.cc            # Entry point
+│   ├── gui/               # GUI layer
+│   └── kernels/           # Kernel layer
 ├── include/                # Header files
 │   ├── gui/
 │   └── kernels/
-├── filters/                # LAV Filters (bundled)
 ├── assets/                 # Icons
+├── filters/                # LAV Filters
 ├── docs/                   # Documentation
-│   ├── CONTRIBUTING.md
-│   └── API.md
-├── .github/workflows/      # CI/CD
-├── CMakeLists.txt
-├── CMakePresets.json
-├── vcpkg.json
-├── .clang-format
-└── LICENSE
+└── .github/                # CI/CD
 ```
 
 ---
 
-## 🐛 Bug Report
+## 📚 Referensi
 
-Kalau menemukan bug, buka issue dengan format:
-
-```
-**Deskripsi:** [Jelaskan bug-nya]
-**Expected:** [Apa yang seharusnya terjadi]
-**Actual:** [Apa yang terjadi]
-**Steps to reproduce:**
-1. ...
-2. ...
-3. ...
-**Environment:** OS, VS version, Windows SDK
-```
-
----
-
-## 💡 Feature Request
-
-Untuk fitur baru, buka issue dengan format:
-
-```
-**Deskripsi:** [Jelaskan fitur yang diinginkan]
-**Use case:** [Kenapa fitur ini berguna]
-**Alternatives:** [Alternatif yang sudah dipertimbangkan]
-```
+- [Win32 API Documentation](https://learn.microsoft.com/en-us/windows/win32/)
+- [DirectShow Documentation](https://learn.microsoft.com/en-us/windows/win32/directshow)
+- [CMake Documentation](https://cmake.org/cmake/help/latest/)
+- [Conventional Commits](https://www.conventionalcommits.org/)
 
 ---
 
 ## 📄 License
 
-Dengan berkontribusi, kamu setuju bahwa kontribusimu akan di-licensed di bawah [MIT License](LICENSE).
+Dengan berkontribusi, Anda setuju bahwa kontribusi Anda akan dilisensikan di bawah MIT License.
+
+---
+
+## ❓ Pertanyaan?
+
+Jika ada pertanyaan, buka issue di GitHub atau hubungi maintainer.
