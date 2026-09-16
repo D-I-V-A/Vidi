@@ -18,6 +18,13 @@ struct SubtitleInfo {
     bool isTextBased;
 };
 
+struct SubtitlePacketData {
+    std::vector<uint8_t> data;
+    long long ptsMs = 0;
+    long long durationMs = 0;
+    bool hasValidDuration = false;
+};
+
 class SubtitleReader {
   private:
     HMODULE m_hAvFormatDll;
