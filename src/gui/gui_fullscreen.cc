@@ -3,10 +3,9 @@
 
 namespace guiVidi {
 
-// ==========================================
-// ENTER FULLSCREEN
-// ==========================================
 void VideoPlayerGUI::EnterFullscreen() {
+    // fungsi ini merupakan logic dari bagaimana video player
+    // melakukan fullscreen
     OutputDebugStringW(L"[VIDI] EnterFullscreen START\n");
 
     if (m_isFullscreen) {
@@ -67,7 +66,7 @@ void VideoPlayerGUI::EnterFullscreen() {
     LayoutFullscreen(monW, monH);
 
     // ========================================================
-    // Update native video size
+    // mengupdate ukuran video.
     // ========================================================
 
     m_player.UpdateVideoSize();
@@ -109,9 +108,7 @@ void VideoPlayerGUI::EnterFullscreen() {
 
     OutputDebugStringW(L"[VIDI] EnterFullscreen END\n");
 }
-// ==========================================
-// EXIT FULLSCREEN
-// ==========================================
+
 void VideoPlayerGUI::ExitFullscreen() {
     OutputDebugStringW(L"[VIDI] === ExitFullscreen START ===\n");
 
@@ -210,6 +207,7 @@ void VideoPlayerGUI::ExitFullscreen() {
 // FIT WINDOW TO VIDEO
 // ==========================================
 void VideoPlayerGUI::FitWindowToVideo() {
+    // fungsi untuk kondisi ukuran window pada video player sesuai dengan ukuran video player
     if (m_isFullscreen || !g_hMainWnd)
         return;
 
@@ -288,10 +286,9 @@ bool VideoPlayerGUI::CursorOverControls() {
     return false;
 }
 
-// ==========================================
-// RECOVER VIDEO — pulihkan tampilan setelah session switch/minimize/ganti resolusi
-// ==========================================
 void VideoPlayerGUI::RecoverVideo() {
+    // fungsi dimana berlogic pulihkan tampilan setelah session
+    // seperti switch/minimize maupun ganti resolusi
     if (m_isPlaying) {
         m_player.Play();
     } else if (m_cachedDuration > 0.0) {

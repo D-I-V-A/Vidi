@@ -52,6 +52,20 @@ template <typename BitmapContainer> uint64_t HashSubtitleBitmaps(const BitmapCon
     return hash;
 }
 
+void VideoPlayerGUI::BeginSubtitleSeekDelay() {
+    // fungsi ini hanya untuk sembunyikan overlay pada subtitle
+    // warning: jangan panggil method `HideAllSubOverlays()`
+    // karena mengakibatkan value dari `m_subsHidden` menjadi true
+    for (int i = 0; i < MAX_SUB_OVERLAYS; ++i) {
+        if (m_hSubOverlay[i]) {
+            ShowWindow(m_hSubOverlay[i], SW_HIDE);
+        }
+    }
+    m_subNeedsUpdate = false;
+    // subtitle akan boleh dirender kembali setelah 150ms
+    m_subtitleSeekUntilTick = GetTickCount() + 150;
+}
+
 // ============================================================
 // Create subtitle overlay
 // ============================================================
@@ -77,7 +91,7 @@ void VideoPlayerGUI::CreateSubtitleOverlay(HWND hwnd) {
     }
 
     for (int i = 0; i < MAX_SUB_OVERLAYS; ++i) {
-        m_hSubOverlay[i] = CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
+        m_hSubOverlay[i] = CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
 
                                            L"VidiSubOverlay",
 
@@ -87,7 +101,7 @@ void VideoPlayerGUI::CreateSubtitleOverlay(HWND hwnd) {
 
                                            0, 0, 100, 40,
 
-                                           nullptr, nullptr,
+                                           hwnd, nullptr,
 
                                            GetModuleHandleW(nullptr), nullptr);
 
@@ -138,13 +152,24 @@ void VideoPlayerGUI::HideAllSubOverlays() {
 // ============================================================
 
 void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds, bool force) {
+
     // --------------------------------------------------------
     // Subtitle disabled
     // --------------------------------------------------------
-
     if (m_subsHidden)
         return;
 
+    // setelah seek,jangan langsung render subtitle
+    // tunggu video stabil terlebih dahulu
+    if (m_subtitleSeekUntilTick != 0) {
+        const DWORD now = GetTickCount();
+
+        if (static_cast<LONG>(now - m_subtitleSeekUntilTick) < 0) {
+            return;
+        }
+
+        m_subtitleSeekUntilTick = 0;
+    }
     // Simpan posisi terakhir supaya fullscreen bisa melakukan
     // refresh subtitle pada posisi video terakhir.
     m_lastSubPosition = posSeconds;
@@ -386,12 +411,7 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds, bool force) {
     // Overlay lama masih benar.
     // --------------------------------------------------------
 
-    if (!force && !geometryChanged && currentHash == m_lastSubContentHash && m_hSubBmp[0] != nullptr) {
-
-        if (m_subNeedsUpdate) {
-            ShowWindow(m_hSubOverlay[0], SW_SHOW);
-        }
-
+    if (!force && !geometryChanged && !renderResult.changed) {
         return;
     }
 

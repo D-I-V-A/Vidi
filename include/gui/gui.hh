@@ -35,6 +35,7 @@ class VideoPlayerGUI {
     bool m_isPlaying;
     DWORD m_lastSeekTick;
     DWORD m_lastDurCheckTick;
+    DWORD m_subtitleSeekUntilTick;
     bool m_hasPendingSeek;
     double m_pendingSeekTarget;
     DWORD m_pendingSeekStartTick;
@@ -68,6 +69,7 @@ class VideoPlayerGUI {
     int m_subBmpH[2] = {};
     HFONT m_hSubFont;
     std::map<int, HFONT> m_subFontCache;
+    bool m_appActivate = true;
     bool m_subsHidden;
     bool m_isClosing;
     int m_lastUsedOverlays = 0;
@@ -113,6 +115,8 @@ class VideoPlayerGUI {
     void LayoutFullscreen(int width, int height);
     void CreateSubtitleOverlay(HWND hwnd);
     void UpdateSubtitleDisplays(double posSeconds, bool force = false);
+    void BeginSubtitleSeekDelay();
+    void BeginSubtitleDelay();
     void HideAllSubOverlays();
     HACCEL CreatePlayerAccelTable();
     void UpdateVolumePercent(int pos);
@@ -161,6 +165,7 @@ class VideoPlayerGUI {
           m_isPlaying(false),
           m_lastSeekTick(0),
           m_lastDurCheckTick(0),
+          m_subtitleSeekUntilTick(0),
           m_hasPendingSeek(false),
           m_pendingSeekTarget(0.0),
           m_pendingSeekStartTick(0),
