@@ -174,38 +174,107 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         }
         return 0;
     }
-    case WM_SIZE:
+    case WM_SIZE: {
         if (!self)
             break;
+
         {
             wchar_t dbg[256];
+
             swprintf_s(dbg, L"[VIDI] WM_SIZE wParam=%llu lParam=0x%llX fullscreen=%d minimized=%d wasMinimized=%d\n",
                        (unsigned long long)wParam, (unsigned long long)lParam, self->m_isFullscreen,
                        (wParam == SIZE_MINIMIZED), self->m_wasMinimized);
+
             OutputDebugStringW(dbg);
         }
+
+        // --------------------------------------------------------
+        // Window minimized
+        // --------------------------------------------------------
+
         if (wParam == SIZE_MINIMIZED) {
             self->m_wasMinimized = true;
             return 0;
         }
+
+        // --------------------------------------------------------
+        // Restore setelah minimized
+        // --------------------------------------------------------
+
         if (self->m_wasMinimized) {
             self->m_wasMinimized = false;
+
             self->m_player.UpdateVideoSize();
             self->RecoverVideo();
         }
-        RECT rcSize;
-        GetClientRect(hwnd, &rcSize);
+
+        // --------------------------------------------------------
+        // Get current client size
+        // --------------------------------------------------------
+
+        RECT rcSize{};
+
+        if (!GetClientRect(hwnd, &rcSize)) {
+            return 0;
+        }
+
+        const int clientW = rcSize.right - rcSize.left;
+        const int clientH = rcSize.bottom - rcSize.top;
+
         {
             wchar_t dbg[256];
-            swprintf_s(dbg, L"[VIDI] WM_SIZE GetClientRect: %dx%d (lParam was %dx%d)\n", rcSize.right, rcSize.bottom,
-                       (int)(short)LOWORD(lParam), (int)(short)HIWORD(lParam));
+
+            swprintf_s(dbg,
+                       L"[VIDI] WM_SIZE GetClientRect: %dx%d "
+                       L"(lParam was %dx%d)\n",
+                       clientW, clientH, (int)(short)LOWORD(lParam), (int)(short)HIWORD(lParam));
+
             OutputDebugStringW(dbg);
         }
-        self->LayoutControls(rcSize.right, rcSize.bottom);
-        if (wParam == SIZE_MAXIMIZED || wParam == SIZE_RESTORED)
-            self->RecoverVideo();
-        return 0;
 
+        // --------------------------------------------------------
+        // Layout controls / video area
+        // --------------------------------------------------------
+
+        if (self->m_isFullscreen) {
+            self->LayoutFullscreen(clientW, clientH);
+        } else {
+            self->LayoutControls(clientW, clientH);
+        }
+
+        // --------------------------------------------------------
+        // Update DirectShow video size
+        // --------------------------------------------------------
+
+        self->m_player.UpdateVideoSize();
+
+        // --------------------------------------------------------
+        // Refresh video after maximize/restore
+        // --------------------------------------------------------
+
+        if (wParam == SIZE_MAXIMIZED || wParam == SIZE_RESTORED) {
+            self->RecoverVideo();
+        }
+
+        // --------------------------------------------------------
+        // IMPORTANT:
+        // Force subtitle refresh after geometry changed.
+        //
+        // Ini membuat subtitle langsung mengikuti:
+        // - resize
+        // - maximize
+        // - fullscreen
+        // - exit fullscreen
+        // --------------------------------------------------------
+
+        if (self->m_isFullscreen) {
+            self->UpdateSubtitleDisplays(self->m_lastSubPosition, true);
+        } else {
+            self->UpdateSubtitleDisplays(self->m_lastSubPosition, true);
+        }
+
+        return 0;
+    }
     case WM_EXITSIZEMOVE:
         if (self) {
             self->m_player.UpdateVideoSize();
@@ -280,7 +349,18 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
                         ShowWindow(self->m_hSubOverlay[i], SW_HIDE);
                 }
             } else {
-                PostMessage(hwnd, WM_APP_FS_ACTIVATE, 0, 0);
+                self->m_subsHidden = false;
+
+                if (self->m_isFullscreen) {
+                    self->UpdateSubtitleDisplays(self->m_lastSubPosition, true);
+                } else {
+                    for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
+                        if (self->m_hSubOverlay[i] && self->m_hSubBmp[i]) {
+
+                            ShowWindow(self->m_hSubOverlay[i], SW_SHOW);
+                        }
+                    }
+                }
             }
         }
         return DefWindowProc(hwnd, uMsg, wParam, lParam);
@@ -313,42 +393,94 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 
     case WM_APP_FS_ACTIVATE:
         if (self && self->m_isFullscreen) {
+
+            OutputDebugStringW(L"[VIDI] WM_APP_FS_ACTIVATE START\n");
+
             HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+
             MONITORINFO mi = {sizeof(mi)};
+
             if (GetMonitorInfo(mon, &mi)) {
-                RECT rcWindow;
+
+                RECT rcWindow = {};
                 GetWindowRect(hwnd, &rcWindow);
+
                 int winW = rcWindow.right - rcWindow.left;
+
                 int winH = rcWindow.bottom - rcWindow.top;
+
                 int monW = mi.rcMonitor.right - mi.rcMonitor.left;
+
                 int monH = mi.rcMonitor.bottom - mi.rcMonitor.top;
 
-                // Cek apakah ukuran window sudah sama dengan monitor
-                if (winW != monW || winH != monH) {
-                    // Resize ke ukuran monitor (hanya jika diperlukan)
+                // ------------------------------------------------
+                // Pastikan fullscreen window benar-benar memenuhi
+                // monitor.
+                // ------------------------------------------------
+
+                if (winW != monW || winH != monH || rcWindow.left != mi.rcMonitor.left ||
+                    rcWindow.top != mi.rcMonitor.top) {
+
                     SetWindowPos(hwnd, HWND_TOPMOST, mi.rcMonitor.left, mi.rcMonitor.top, monW, monH,
-                                 SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-                    // Layout ulang karena ukuran berubah
-                    RECT rcClient;
-                    GetClientRect(hwnd, &rcClient);
-                    self->LayoutFullscreen(rcClient.right, rcClient.bottom);
+                                 SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
                 } else {
-                    // Ukuran sudah pas, cukup set topmost tanpa resize
-                    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER);
-                    RECT rcClient;
-                    GetClientRect(hwnd, &rcClient);
-                    self->LayoutFullscreen(rcClient.right, rcClient.bottom);
+
+                    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
                 }
+
+                // ------------------------------------------------
+                // Ambil client area SEBENARNYA setelah resize.
+                // ------------------------------------------------
+
+                RECT rcClient = {};
+                GetClientRect(hwnd, &rcClient);
+
+                int clientW = rcClient.right - rcClient.left;
+
+                int clientH = rcClient.bottom - rcClient.top;
+
+                // ------------------------------------------------
+                // Layout fullscreen.
+                // ------------------------------------------------
+
+                self->LayoutFullscreen(clientW, clientH);
+
+                // ------------------------------------------------
+                // Update video geometry.
+                // ------------------------------------------------
+
+                self->m_player.UpdateVideoSize();
+
+                // ------------------------------------------------
+                // Pulihkan frame.
+                // ------------------------------------------------
+
+                self->RecoverVideo();
             }
-            // Restore subtitle yang di-hide saat WA_INACTIVE
+
+            // ----------------------------------------------------
+            // Restore subtitle state.
+            // ----------------------------------------------------
+
             if (self->m_subsHidden) {
                 self->m_subsHidden = false;
-                for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
-                    if (self->m_hSubOverlay[i] && self->m_hSubBmp[i])
-                        ShowWindow(self->m_hSubOverlay[i], SW_SHOW);
-                }
             }
+
+            // ----------------------------------------------------
+            // IMPORTANT:
+            //
+            // Jangan cuma ShowWindow().
+            //
+            // Paksa libass + layered window melakukan update ulang
+            // berdasarkan geometry fullscreen yang terbaru.
+            // ----------------------------------------------------
+
+            self->UpdateSubtitleDisplays(self->m_lastSubPosition, true);
+
+            OutputDebugStringW(L"[VIDI] WM_APP_FS_ACTIVATE END\n");
         }
+
         return 0;
 
     case WM_WTSSESSION_CHANGE:

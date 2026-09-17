@@ -11,87 +11,136 @@ void VideoPlayerGUI::EnterFullscreen() {
 
     if (m_isFullscreen) {
         OutputDebugStringW(L"[VIDI] EnterFullscreen ALREADY fullscreen, abort\n");
+
         return;
-    }
-    MONITORINFO mi = {sizeof(mi)};
-    HMONITOR mon = MonitorFromWindow(g_hMainWnd, MONITOR_DEFAULTTONEAREST);
-    if (!GetWindowPlacement(g_hMainWnd, &m_prevPlacement) || !GetMonitorInfo(mon, &mi)) {
-        OutputDebugStringW(L"[VIDI] EnterFullscreen FAILED to get monitor info\n");
-        return;
-    }
-    int monW = mi.rcMonitor.right - mi.rcMonitor.left;
-    int monH = mi.rcMonitor.bottom - mi.rcMonitor.top;
-    {
-        wchar_t dbg[256];
-        swprintf_s(dbg, L"[VIDI] EnterFullscreen monitor=%dx%d pos=(%d,%d)\n", monW, monH, mi.rcMonitor.left,
-                   mi.rcMonitor.top);
-        OutputDebugStringW(dbg);
     }
 
+    MONITORINFO mi = {sizeof(mi)};
+
+    HMONITOR mon = MonitorFromWindow(g_hMainWnd, MONITOR_DEFAULTTONEAREST);
+
+    if (!GetWindowPlacement(g_hMainWnd, &m_prevPlacement) || !GetMonitorInfo(mon, &mi)) {
+        OutputDebugStringW(L"[VIDI] EnterFullscreen FAILED "
+                           L"to get monitor info\n");
+
+        return;
+    }
+
+    const int monW = mi.rcMonitor.right - mi.rcMonitor.left;
+
+    const int monH = mi.rcMonitor.bottom - mi.rcMonitor.top;
+
     m_isFullscreen = true;
+
     SendMessage(g_hMainWnd, WM_SETREDRAW, FALSE, 0);
 
     DWORD style = GetWindowLong(g_hMainWnd, GWL_STYLE);
-    {
-        wchar_t dbg[256];
-        swprintf_s(dbg, L"[VIDI] EnterFullscreen oldStyle=0x%08X changing to WS_POPUP\n", style);
-        OutputDebugStringW(dbg);
-    }
+
     SetWindowLong(g_hMainWnd, GWL_STYLE, (style & ~WS_OVERLAPPEDWINDOW) | WS_POPUP);
+
     DWORD exStyle = GetWindowLong(g_hMainWnd, GWL_EXSTYLE);
+
     SetWindowLong(g_hMainWnd, GWL_EXSTYLE, exStyle | WS_EX_APPWINDOW);
+
     if (m_hMenuBar)
         SetMenu(g_hMainWnd, nullptr);
 
     SetWindowPos(g_hMainWnd, HWND_TOPMOST, mi.rcMonitor.left, mi.rcMonitor.top, monW, monH,
                  SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
 
-    for (int i = 0; i < MAX_SUB_OVERLAYS; i++) {
+    for (int i = 0; i < MAX_SUB_OVERLAYS; ++i) {
         if (m_hSubOverlay[i]) {
+
             SetWindowPos(m_hSubOverlay[i], HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         }
     }
 
     SendMessage(g_hMainWnd, WM_SETREDRAW, TRUE, 0);
+
     RedrawWindow(g_hMainWnd, nullptr, nullptr,
                  RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
-    RECT rc;
-    GetClientRect(g_hMainWnd, &rc);
-    {
-        wchar_t dbg[256];
-        swprintf_s(dbg, L"[VIDI] EnterFullscreen AFTER resize client=%dx%d (monitor=%dx%d)\n", rc.right, rc.bottom,
-                   monW, monH);
-        OutputDebugStringW(dbg);
-    }
+
+    // ========================================================
+    // Layout fullscreen
+    // ========================================================
+
     LayoutFullscreen(monW, monH);
+
+    // ========================================================
+    // Update native video size
+    // ========================================================
+
     m_player.UpdateVideoSize();
+
+    // ========================================================
+    // FORCE subtitle geometry refresh
+    // ========================================================
+
+    m_lastSubFrameW = 0;
+    m_lastSubFrameH = 0;
+
+    m_lastSubOverlayX = 0;
+    m_lastSubOverlayY = 0;
+
+    m_lastSubContentHash = 0;
+
+    m_lastSubRenderTick = 0;
+
+    // ========================================================
+    // IMPORTANT
+    //
+    // Subtitle dipaksa update SEKARANG.
+    //
+    // Tidak menunggu video frame baru.
+    // ========================================================
+
+    if (!m_subsHidden) {
+
+        UpdateSubtitleDisplays(m_lastSubPosition, true);
+    }
+
+    // ========================================================
+    // Baru recover video
+    // ========================================================
+
     RecoverVideo();
+    UpdateSubtitleDisplays(m_lastSubPosition, true);
     PokeOSControls();
+
     OutputDebugStringW(L"[VIDI] EnterFullscreen END\n");
 }
-
 // ==========================================
 // EXIT FULLSCREEN
 // ==========================================
 void VideoPlayerGUI::ExitFullscreen() {
     OutputDebugStringW(L"[VIDI] === ExitFullscreen START ===\n");
+
     if (!m_isFullscreen)
         return;
 
     m_isFullscreen = false;
+
     SendMessage(g_hMainWnd, WM_SETREDRAW, FALSE, 0);
 
     DWORD style = GetWindowLong(g_hMainWnd, GWL_STYLE);
+
     SetWindowLong(g_hMainWnd, GWL_STYLE, (style & ~WS_POPUP) | WS_OVERLAPPEDWINDOW);
+
     DWORD exStyle = GetWindowLong(g_hMainWnd, GWL_EXSTYLE);
+
     SetWindowLong(g_hMainWnd, GWL_EXSTYLE, exStyle & ~WS_EX_APPWINDOW);
+
     if (m_hMenuBar)
         SetMenu(g_hMainWnd, m_hMenuBar);
+
     if (!SetWindowPlacement(g_hMainWnd, &m_prevPlacement)) {
         HMONITOR mon = MonitorFromWindow(g_hMainWnd, MONITOR_DEFAULTTONEAREST);
+
         MONITORINFO mi = {sizeof(mi)};
+
         if (GetMonitorInfo(mon, &mi)) {
             RECT r = mi.rcWork;
+
             SetWindowPos(g_hMainWnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
                          SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
         }
@@ -101,30 +150,62 @@ void VideoPlayerGUI::ExitFullscreen() {
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
 
     KillTimer(g_hMainWnd, ID_TIMER_OSI_HIDE);
+
     ShowOSControls(true);
+
     if (m_cursorHidden) {
+
         ShowCursor(TRUE);
+
         m_cursorHidden = false;
     }
 
     SendMessage(g_hMainWnd, WM_SETREDRAW, TRUE, 0);
+
     RedrawWindow(g_hMainWnd, nullptr, nullptr,
                  RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
 
-    RECT rc;
+    RECT rc = {};
+
     GetClientRect(g_hMainWnd, &rc);
-    {
-        wchar_t dbg[256];
-        swprintf_s(dbg, L"[VIDI] ExitFullscreen client=%dx%d\n", rc.right, rc.bottom);
-        OutputDebugStringW(dbg);
-    }
+
     LayoutControls(rc.right, rc.bottom);
+
     m_player.UpdateVideoSize();
+
+    // ========================================================
+    // FORCE subtitle geometry refresh
+    // ========================================================
+
+    m_lastSubFrameW = 0;
+    m_lastSubFrameH = 0;
+
+    m_lastSubOverlayX = 0;
+    m_lastSubOverlayY = 0;
+
+    m_lastSubContentHash = 0;
+
+    m_lastSubRenderTick = 0;
+
+    // ========================================================
+    // FORCE immediate subtitle update
+    // ========================================================
+
+    if (!m_subsHidden) {
+
+        UpdateSubtitleDisplays(m_lastSubPosition, true);
+    }
+
+    // ========================================================
+    // Recover video AFTER subtitle geometry is ready
+    // ========================================================
+
     RecoverVideo();
+
     m_lastVideoClickTick = 0;
+
     OutputDebugStringW(L"[VIDI] === ExitFullscreen END ===\n");
 }
-
 // ==========================================
 // FIT WINDOW TO VIDEO
 // ==========================================

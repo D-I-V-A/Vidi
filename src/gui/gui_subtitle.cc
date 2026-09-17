@@ -137,13 +137,17 @@ void VideoPlayerGUI::HideAllSubOverlays() {
 // Update subtitle displays
 // ============================================================
 
-void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
+void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds, bool force) {
     // --------------------------------------------------------
     // Subtitle disabled
     // --------------------------------------------------------
 
     if (m_subsHidden)
         return;
+
+    // Simpan posisi terakhir supaya fullscreen bisa melakukan
+    // refresh subtitle pada posisi video terakhir.
+    m_lastSubPosition = posSeconds;
 
     // --------------------------------------------------------
     // Subtitle belum loaded
@@ -153,9 +157,7 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
         static int skipCount = 0;
 
         if (++skipCount % 300 == 1) {
-            OutputDebugStringW(L"[VIDI] gui: "
-                               L"UpdateSub skipped "
-                               L"(not loaded)\n");
+            OutputDebugStringW(L"[VIDI] gui: UpdateSub skipped (not loaded)\n");
         }
 
         return;
@@ -174,29 +176,11 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     }
 
     // --------------------------------------------------------
-    // Throttle subtitle GUI update.
-    //
-    // 50 ms = sekitar 20 update/s.
-    //
-    // Libass tetap punya timing internal,
-    // tetapi GUI tidak perlu melakukan UpdateLayeredWindow
-    // puluhan/ratusan kali per frame video.
-    // --------------------------------------------------------
-
-    DWORD now = GetTickCount();
-
-    if (m_lastSubRenderTick != 0 && now - m_lastSubRenderTick < 50) {
-        if (m_hSubBmp[0] && m_subNeedsUpdate) {
-            ShowWindow(m_hSubOverlay[0], SW_SHOW);
-        }
-
-        return;
-    }
-
-    m_lastSubRenderTick = now;
-
-    // --------------------------------------------------------
     // Get video area
+    //
+    // Geometry harus dihitung SEBELUM throttle.
+    // Ini penting ketika fullscreen mengubah posisi/ukuran
+    // video area.
     // --------------------------------------------------------
 
     RECT videoRC = {};
@@ -211,20 +195,19 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
 
     if (g_hVideoArea) {
         ClientToScreen(g_hVideoArea, &tl);
-
         ClientToScreen(g_hVideoArea, &br);
     }
 
     int vidX = tl.x;
-
     int vidY = tl.y;
 
     int vidW = br.x - tl.x;
-
     int vidH = br.y - tl.y;
 
     if (vidW <= 0 || vidH <= 0) {
-        ShowWindow(m_hSubOverlay[0], SW_HIDE);
+        if (m_hSubOverlay[0]) {
+            ShowWindow(m_hSubOverlay[0], SW_HIDE);
+        }
 
         return;
     }
@@ -239,7 +222,9 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     m_player.GetNativeVideoSize(nativeW, nativeH);
 
     if (nativeW <= 0 || nativeH <= 0) {
-        ShowWindow(m_hSubOverlay[0], SW_HIDE);
+        if (m_hSubOverlay[0]) {
+            ShowWindow(m_hSubOverlay[0], SW_HIDE);
+        }
 
         return;
     }
@@ -251,25 +236,71 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     // bukan seluruh black-bar area.
     // --------------------------------------------------------
 
-    double scaleX = (double)vidW / (double)nativeW;
+    double scaleX = static_cast<double>(vidW) / static_cast<double>(nativeW);
 
-    double scaleY = (double)vidH / (double)nativeH;
+    double scaleY = static_cast<double>(vidH) / static_cast<double>(nativeH);
 
     double scale = (scaleX < scaleY) ? scaleX : scaleY;
 
-    int contentW = (int)(nativeW * scale);
-
-    int contentH = (int)(nativeH * scale);
+    int contentW = static_cast<int>(nativeW * scale);
+    int contentH = static_cast<int>(nativeH * scale);
 
     int contentX = vidX + (vidW - contentW) / 2;
-
     int contentY = vidY + (vidH - contentH) / 2;
 
     if (contentW <= 0 || contentH <= 0) {
-        ShowWindow(m_hSubOverlay[0], SW_HIDE);
+        if (m_hSubOverlay[0]) {
+            ShowWindow(m_hSubOverlay[0], SW_HIDE);
+        }
 
         return;
     }
+
+    // --------------------------------------------------------
+    // Detect geometry changes
+    //
+    // frameSizeChanged:
+    //     ukuran subtitle render berubah
+    //
+    // overlayPositionChanged:
+    //     posisi subtitle overlay berubah
+    //
+    // geometryChanged:
+    //     salah satu dari keduanya berubah
+    // --------------------------------------------------------
+
+    const bool frameSizeChanged = contentW != m_lastSubFrameW || contentH != m_lastSubFrameH;
+
+    const bool overlayPositionChanged = contentX != m_lastSubOverlayX || contentY != m_lastSubOverlayY;
+
+    const bool geometryChanged = frameSizeChanged || overlayPositionChanged;
+
+    // --------------------------------------------------------
+    // Throttle subtitle GUI update
+    //
+    // Kalau geometry berubah, JANGAN throttle.
+    //
+    // Ini penting ketika:
+    //     window -> fullscreen
+    //     fullscreen -> window
+    //     resize
+    //
+    // Walaupun bitmap subtitle sama, posisi overlay harus
+    // tetap diperbarui.
+    // --------------------------------------------------------
+
+    DWORD now = GetTickCount();
+
+    if (!force && !geometryChanged && m_lastSubRenderTick != 0 && now - m_lastSubRenderTick < 50) {
+
+        if (m_hSubBmp[0] && m_subNeedsUpdate) {
+            ShowWindow(m_hSubOverlay[0], SW_SHOW);
+        }
+
+        return;
+    }
+
+    m_lastSubRenderTick = now;
 
     // --------------------------------------------------------
     // Update libass render size only if display size changes.
@@ -277,20 +308,26 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     // JANGAN memanggil SetFrameSize setiap frame.
     // --------------------------------------------------------
 
-    if (contentW != m_lastSubFrameW || contentH != m_lastSubFrameH) {
-        auto& renderer = m_player.GetSubtitleReader().GetAssRenderer();
+    if (frameSizeChanged) {
+        auto& assRender = m_player.GetSubtitleReader().GetAssRenderer();
 
-        renderer.SetStorageSize(contentW, contentH);
-
-        renderer.SetFrameSize(contentW, contentH);
+        assRender.SetStorageSize(contentW, contentH);
+        assRender.SetFrameSize(contentW, contentH);
 
         m_lastSubFrameW = contentW;
-
         m_lastSubFrameH = contentH;
 
-        // Bitmap lama tidak lagi valid.
+        // Render sebelumnya sudah tidak valid
+        // karena ukuran frame berubah.
         m_lastSubContentHash = 0;
     }
+
+    // --------------------------------------------------------
+    // Simpan posisi overlay terakhir.
+    // --------------------------------------------------------
+
+    m_lastSubOverlayX = contentX;
+    m_lastSubOverlayY = contentY;
 
     // --------------------------------------------------------
     // Render ASS at current video position.
@@ -306,12 +343,27 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     // --------------------------------------------------------
 
     if (renderResult.bitmaps.empty()) {
-        ShowWindow(m_hSubOverlay[0], SW_HIDE);
+        if (m_hSubOverlay[0]) {
+            ShowWindow(m_hSubOverlay[0], SW_HIDE);
+        }
 
         m_subNeedsUpdate = false;
-
         m_lastSubContentHash = 0;
 
+        return;
+    }
+
+    // --------------------------------------------------------
+    // Kalau libass tidak menghasilkan bitmap baru tetapi
+    // overlay sudah ada, tidak perlu composite ulang.
+    //
+    // Pengecualian:
+    // geometry berubah atau force.
+    // --------------------------------------------------------
+
+    if (!force && !geometryChanged && !renderResult.changed && m_hSubBmp[0] && m_subNeedsUpdate) {
+
+        ShowWindow(m_hSubOverlay[0], SW_SHOW);
         return;
     }
 
@@ -322,19 +374,20 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     const uint64_t currentHash = HashSubtitleBitmaps(renderResult.bitmaps);
 
     // --------------------------------------------------------
-    // OPTIMIZATION
+    // Optimization
     //
-    // Kalau bitmap subtitle sama persis:
-    //
+    // Kalau bitmap subtitle sama persis dan geometry juga sama,
     // jangan:
+    //
     // - memset DIB
     // - composite bitmap
     // - UpdateLayeredWindow
     //
-    // Overlay lama sudah benar.
+    // Overlay lama masih benar.
     // --------------------------------------------------------
 
-    if (currentHash == m_lastSubContentHash && m_hSubBmp[0] != nullptr) {
+    if (!force && !geometryChanged && currentHash == m_lastSubContentHash && m_hSubBmp[0] != nullptr) {
+
         if (m_subNeedsUpdate) {
             ShowWindow(m_hSubOverlay[0], SW_SHOW);
         }
@@ -342,7 +395,10 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
         return;
     }
 
-    // Visual subtitle memang berubah.
+    // --------------------------------------------------------
+    // Visual subtitle memang berubah
+    // --------------------------------------------------------
+
     m_lastSubContentHash = currentHash;
 
     // --------------------------------------------------------
@@ -350,10 +406,10 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     // --------------------------------------------------------
 
     if (m_hSubBmp[0] && (m_subBmpW[0] != contentW || m_subBmpH[0] != contentH)) {
+
         DeleteObject(m_hSubBmp[0]);
 
         m_hSubBmp[0] = nullptr;
-
         m_pSubBmpBits[0] = nullptr;
 
         m_subBmpW[0] = 0;
@@ -374,15 +430,12 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
         bmi.bmiHeader.biHeight = -contentH;
 
         bmi.bmiHeader.biPlanes = 1;
-
         bmi.bmiHeader.biBitCount = 32;
-
         bmi.bmiHeader.biCompression = BI_RGB;
 
         m_hSubBmp[0] = CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, &m_pSubBmpBits[0], nullptr, 0);
 
         m_subBmpW[0] = contentW;
-
         m_subBmpH[0] = contentH;
     }
 
@@ -394,7 +447,7 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     // Clear bitmap
     // --------------------------------------------------------
 
-    memset(m_pSubBmpBits[0], 0, (size_t)contentW * (size_t)contentH * 4);
+    memset(m_pSubBmpBits[0], 0, static_cast<size_t>(contentW) * static_cast<size_t>(contentH) * 4);
 
     // --------------------------------------------------------
     // Composite libass images
@@ -411,21 +464,21 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
         // 0xRRGGBBTT
         //
         // TT:
-        // 00 = opaque
-        // FF = transparent
+        //     00 = opaque
+        //     FF = transparent
         // ----------------------------------------------------
 
         const uint32_t c = b.color;
 
-        const BYTE srcR = (BYTE)((c >> 24) & 0xFF);
+        const BYTE srcR = static_cast<BYTE>((c >> 24) & 0xFF);
 
-        const BYTE srcG = (BYTE)((c >> 16) & 0xFF);
+        const BYTE srcG = static_cast<BYTE>((c >> 16) & 0xFF);
 
-        const BYTE srcB = (BYTE)((c >> 8) & 0xFF);
+        const BYTE srcB = static_cast<BYTE>((c >> 8) & 0xFF);
 
-        const BYTE assTransparency = (BYTE)(c & 0xFF);
+        const BYTE assTransparency = static_cast<BYTE>(c & 0xFF);
 
-        const BYTE assAlpha = (BYTE)(255 - assTransparency);
+        const BYTE assAlpha = static_cast<BYTE>(255 - assTransparency);
 
         if (assAlpha == 0)
             continue;
@@ -435,7 +488,7 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
         // ----------------------------------------------------
 
         for (int y = 0; y < b.height; ++y) {
-            const BYTE* srcRow = b.bitmap.data() + (size_t)y * (size_t)b.width;
+            const BYTE* srcRow = b.bitmap.data() + static_cast<size_t>(y) * static_cast<size_t>(b.width);
 
             for (int x = 0; x < b.width; ++x) {
                 const BYTE coverage = srcRow[x];
@@ -444,7 +497,6 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
                     continue;
 
                 const int dx = b.x + x;
-
                 const int dy = b.y + y;
 
                 // ------------------------------------------------
@@ -459,24 +511,26 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
                 // ASS alpha * glyph coverage
                 // ------------------------------------------------
 
-                const BYTE srcAlpha = (BYTE)(((int)assAlpha * (int)coverage + 127) / 255);
+                const BYTE srcAlpha =
+                    static_cast<BYTE>((static_cast<int>(assAlpha) * static_cast<int>(coverage) + 127) / 255);
 
                 if (srcAlpha == 0)
                     continue;
 
-                DWORD* dst = (DWORD*)m_pSubBmpBits[0] + (size_t)dy * (size_t)contentW + dx;
+                DWORD* dst = static_cast<DWORD*>(m_pSubBmpBits[0]) +
+                             static_cast<size_t>(dy) * static_cast<size_t>(contentW) + dx;
 
                 // ------------------------------------------------
                 // Destination BGRA
                 // ------------------------------------------------
 
-                const BYTE dstB = (BYTE)(*dst & 0xFF);
+                const BYTE dstB = static_cast<BYTE>(*dst & 0xFF);
 
-                const BYTE dstG = (BYTE)((*dst >> 8) & 0xFF);
+                const BYTE dstG = static_cast<BYTE>((*dst >> 8) & 0xFF);
 
-                const BYTE dstR = (BYTE)((*dst >> 16) & 0xFF);
+                const BYTE dstR = static_cast<BYTE>((*dst >> 16) & 0xFF);
 
-                const BYTE dstA = (BYTE)((*dst >> 24) & 0xFF);
+                const BYTE dstA = static_cast<BYTE>((*dst >> 24) & 0xFF);
 
                 const int invA = 255 - srcAlpha;
 
@@ -484,25 +538,26 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
                 // Premultiply source
                 // ------------------------------------------------
 
-                const BYTE srcPR = (BYTE)(((int)srcR * (int)srcAlpha + 127) / 255);
+                const BYTE srcPR = static_cast<BYTE>((static_cast<int>(srcR) * static_cast<int>(srcAlpha) + 127) / 255);
 
-                const BYTE srcPG = (BYTE)(((int)srcG * (int)srcAlpha + 127) / 255);
+                const BYTE srcPG = static_cast<BYTE>((static_cast<int>(srcG) * static_cast<int>(srcAlpha) + 127) / 255);
 
-                const BYTE srcPB = (BYTE)(((int)srcB * (int)srcAlpha + 127) / 255);
+                const BYTE srcPB = static_cast<BYTE>((static_cast<int>(srcB) * static_cast<int>(srcAlpha) + 127) / 255);
 
                 // ------------------------------------------------
                 // Source-over
                 // ------------------------------------------------
 
-                const BYTE outR = (BYTE)(srcPR + ((int)dstR * invA + 127) / 255);
+                const BYTE outR = static_cast<BYTE>(srcPR + (static_cast<int>(dstR) * invA + 127) / 255);
 
-                const BYTE outG = (BYTE)(srcPG + ((int)dstG * invA + 127) / 255);
+                const BYTE outG = static_cast<BYTE>(srcPG + (static_cast<int>(dstG) * invA + 127) / 255);
 
-                const BYTE outB = (BYTE)(srcPB + ((int)dstB * invA + 127) / 255);
+                const BYTE outB = static_cast<BYTE>(srcPB + (static_cast<int>(dstB) * invA + 127) / 255);
 
-                const BYTE outA = (BYTE)(srcAlpha + ((int)dstA * invA + 127) / 255);
+                const BYTE outA = static_cast<BYTE>(srcAlpha + (static_cast<int>(dstA) * invA + 127) / 255);
 
-                *dst = ((DWORD)outA << 24) | ((DWORD)outR << 16) | ((DWORD)outG << 8) | (DWORD)outB;
+                *dst = (static_cast<DWORD>(outA) << 24) | (static_cast<DWORD>(outR) << 16) |
+                       (static_cast<DWORD>(outG) << 8) | static_cast<DWORD>(outB);
             }
         }
     }
@@ -520,11 +575,10 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
 
     if (!hMemDC) {
         ReleaseDC(nullptr, hdcScreen);
-
         return;
     }
 
-    HBITMAP hOld = (HBITMAP)SelectObject(hMemDC, m_hSubBmp[0]);
+    HBITMAP hOld = static_cast<HBITMAP>(SelectObject(hMemDC, m_hSubBmp[0]));
 
     POINT ptDst = {contentX, contentY};
 
@@ -535,9 +589,7 @@ void VideoPlayerGUI::UpdateSubtitleDisplays(double posSeconds) {
     BLENDFUNCTION blend = {};
 
     blend.BlendOp = AC_SRC_OVER;
-
     blend.SourceConstantAlpha = 255;
-
     blend.AlphaFormat = AC_SRC_ALPHA;
 
     UpdateLayeredWindow(m_hSubOverlay[0], hdcScreen, &ptDst, &sizeWnd, hMemDC, &ptSrc, 0, &blend, ULW_ALPHA);

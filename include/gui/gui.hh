@@ -75,7 +75,10 @@ class VideoPlayerGUI {
     size_t m_lastSubContentHash = 0;
     int m_lastSubFrameW = 0;
     int m_lastSubFrameH = 0;
+    int m_lastSubOverlayX = 0;
+    int m_lastSubOverlayY = 0;
     DWORD m_lastSubRenderTick = 0;
+    double m_lastSubPosition = 0.0;
     bool m_subNeedsUpdate = false;
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void CreateMenuBar(HWND hwnd);
@@ -109,7 +112,7 @@ class VideoPlayerGUI {
     void RecoverVideo();
     void LayoutFullscreen(int width, int height);
     void CreateSubtitleOverlay(HWND hwnd);
-    void UpdateSubtitleDisplays(double posSeconds);
+    void UpdateSubtitleDisplays(double posSeconds, bool force = false);
     void HideAllSubOverlays();
     HACCEL CreatePlayerAccelTable();
     void UpdateVolumePercent(int pos);

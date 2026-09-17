@@ -7,6 +7,7 @@
 #include <cmath>
 #include <vector>
 #include <string>
+#include <cstdint>
 
 namespace kernelPlayerVidi {
 
@@ -20,16 +21,21 @@ static std::string DecodeNameString(const uint8_t* strPtr, uint16_t length, uint
     if (!strPtr || length == 0)
         return result;
 
+    // UTF-16BE
     if (encodingID == 1) {
-        // UTF-16BE
+
         for (int j = 0; j + 1 < length; j += 2) {
+
             char c = static_cast<char>(strPtr[j + 1]);
 
             if (c >= 32 && c < 127)
                 result += c;
         }
+
     } else {
+
         for (int j = 0; j < length; ++j) {
+
             char c = static_cast<char>(strPtr[j]);
 
             if (c >= 32 && c < 127)
@@ -40,7 +46,12 @@ static std::string DecodeNameString(const uint8_t* strPtr, uint16_t length, uint
     return result;
 }
 
+// ============================================================
+// Extract TTF font names
+// ============================================================
+
 static std::vector<std::string> ExtractTtfFontNames(const uint8_t* data, int size) {
+
     std::vector<std::string> names;
 
     if (!data || size < 12)
@@ -70,6 +81,7 @@ static std::vector<std::string> ExtractTtfFontNames(const uint8_t* data, int siz
 
         if (nameTableOffset >= 0 && nameTableLen > 0 && nameTableOffset <= size &&
             nameTableLen <= size - nameTableOffset) {
+
             nameTable = data + nameTableOffset;
         }
 
@@ -95,6 +107,7 @@ static std::vector<std::string> ExtractTtfFontNames(const uint8_t* data, int siz
             return;
 
         for (const auto& existing : names) {
+
             if (existing == name)
                 return;
         }
@@ -102,7 +115,6 @@ static std::vector<std::string> ExtractTtfFontNames(const uint8_t* data, int siz
         names.push_back(name);
     };
 
-    // Prefer:
     // 4 = Full font name
     // 1 = Family
     // 6 = PostScript name
@@ -137,11 +149,13 @@ static std::vector<std::string> ExtractTtfFontNames(const uint8_t* data, int siz
                 continue;
 
             if (platformID != 1 && platformID != 3) {
+
                 continue;
             }
 
             if (static_cast<int>(stringOffset) + static_cast<int>(strOffset) + static_cast<int>(strLength) >
                 nameTableLen) {
+
                 continue;
             }
 
@@ -171,23 +185,40 @@ static std::vector<std::string> ExtractTtfFontNames(const uint8_t* data, int siz
 // ============================================================
 // AVPacket raw layout
 // ============================================================
+//
+// Dipakai hanya untuk akses field packet yang diperlukan.
+// ============================================================
 
 struct AVPacketRaw {
+
     void* buf;
 
     int64_t pts;
     int64_t dts;
 
     uint8_t* data;
-    int size;
 
+    int size;
     int stream_index;
     int flags;
 
+    void* side_data;
+
+    int side_data_elems;
+
+    int side_data_padding;
+
     int64_t duration;
+
     int64_t pos;
 
-    char _pad[256];
+    void* opaque;
+    void* opaque_ref;
+
+    int time_base_num;
+    int time_base_den;
+
+    char _pad[192];
 };
 
 // ============================================================
@@ -195,6 +226,7 @@ struct AVPacketRaw {
 // ============================================================
 
 static void VSubLog(const wchar_t* fmt, ...) {
+
     wchar_t buf[1024] = {};
 
     va_list ap;
@@ -210,16 +242,19 @@ static void VSubLog(const wchar_t* fmt, ...) {
     wchar_t tempPath[MAX_PATH] = {};
 
     if (!GetTempPathW(MAX_PATH, tempPath)) {
+
         return;
     }
 
     if (wcscat_s(tempPath, MAX_PATH, L"vidi_debug.log") != 0) {
+
         return;
     }
 
     FILE* f = nullptr;
 
     if (_wfopen_s(&f, tempPath, L"a") != 0 || !f) {
+
         return;
     }
 
@@ -236,6 +271,7 @@ static void VSubLog(const wchar_t* fmt, ...) {
 // ============================================================
 
 static std::wstring Utf8ToWide(const char* utf8) {
+
     if (!utf8 || !*utf8)
         return L"";
 
@@ -244,9 +280,17 @@ static std::wstring Utf8ToWide(const char* utf8) {
     if (len <= 0)
         return L"";
 
-    std::wstring result(static_cast<size_t>(len - 1), L'\0');
+    std::wstring result(static_cast<size_t>(len), L'\0');
 
-    MultiByteToWideChar(CP_UTF8, 0, utf8, -1, result.data(), len);
+    const int written = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, result.data(), len);
+
+    if (written <= 0)
+        return L"";
+
+    if (!result.empty() && result.back() == L'\0') {
+
+        result.pop_back();
+    }
 
     return result;
 }
@@ -256,6 +300,7 @@ static std::wstring Utf8ToWide(const char* utf8) {
 // ============================================================
 
 static std::string WideToUtf8(const wchar_t* wide) {
+
     if (!wide || !*wide)
         return "";
 
@@ -264,9 +309,17 @@ static std::string WideToUtf8(const wchar_t* wide) {
     if (len <= 0)
         return "";
 
-    std::string result(static_cast<size_t>(len - 1), '\0');
+    std::string result(static_cast<size_t>(len), '\0');
 
-    WideCharToMultiByte(CP_UTF8, 0, wide, -1, result.data(), len, nullptr, nullptr);
+    const int written = WideCharToMultiByte(CP_UTF8, 0, wide, -1, result.data(), len, nullptr, nullptr);
+
+    if (written <= 0)
+        return "";
+
+    if (!result.empty() && result.back() == '\0') {
+
+        result.pop_back();
+    }
 
     return result;
 }
@@ -276,6 +329,7 @@ static std::string WideToUtf8(const wchar_t* wide) {
 // ============================================================
 
 static std::wstring GetExeDir() {
+
     wchar_t path[MAX_PATH] = {};
 
     GetModuleFileNameW(nullptr, path, MAX_PATH);
@@ -295,17 +349,20 @@ static std::wstring GetExeDir() {
 // ============================================================
 
 static bool LooksLikeSubtitleText(const uint8_t* data, int size) {
+
     if (!data || size < 4)
         return false;
 
     // NAL start code
     if (data[0] == 0 && data[1] == 0 && (data[2] == 1 || (data[2] == 0 && data[3] == 1))) {
+
         return false;
     }
 
     int nullCount = 0;
 
     for (int i = 0; i < size && i < 32; ++i) {
+
         if (data[i] == 0)
             ++nullCount;
     }
@@ -323,42 +380,53 @@ static bool LooksLikeSubtitleText(const uint8_t* data, int size) {
         const uint8_t c = data[i];
 
         if (c >= 0x20 && c < 0x7F) {
+
             ++printable;
             ++checked;
             ++i;
+
         } else if (c == '\n' || c == '\r' || c == '\t') {
+
             ++printable;
             ++checked;
             ++i;
+
         } else if ((c & 0xE0) == 0xC0) {
 
             if (i + 1 >= size || (data[i + 1] & 0xC0) != 0x80) {
+
                 return false;
             }
 
             printable += 2;
             checked += 2;
             i += 2;
+
         } else if ((c & 0xF0) == 0xE0) {
 
             if (i + 2 >= size || (data[i + 1] & 0xC0) != 0x80 || (data[i + 2] & 0xC0) != 0x80) {
+
                 return false;
             }
 
             printable += 3;
             checked += 3;
             i += 3;
+
         } else if ((c & 0xF8) == 0xF0) {
 
             if (i + 3 >= size || (data[i + 1] & 0xC0) != 0x80 || (data[i + 2] & 0xC0) != 0x80 ||
                 (data[i + 3] & 0xC0) != 0x80) {
+
                 return false;
             }
 
             printable += 4;
             checked += 4;
             i += 4;
+
         } else {
+
             return false;
         }
     }
@@ -398,6 +466,7 @@ SubtitleReader::~SubtitleReader() {
 // ============================================================
 
 bool SubtitleReader::LoadFFmpegDlls() {
+
     if (m_dllsLoaded)
         return true;
 
@@ -410,6 +479,7 @@ bool SubtitleReader::LoadFFmpegDlls() {
     m_hAvUtilDll = LoadLibraryW((dir + L"\\filters\\x64\\avutil-lav-60.dll").c_str());
 
     if (!m_hAvFormatDll || !m_hAvCodecDll || !m_hAvUtilDll) {
+
         VSubLog(L"[VIDI] Sub: gagal load FFmpeg DLL "
                 L"(format=%p codec=%p util=%p)",
                 m_hAvFormatDll, m_hAvCodecDll, m_hAvUtilDll);
@@ -420,19 +490,31 @@ bool SubtitleReader::LoadFFmpegDlls() {
 #define RES(mod, name) m_ff.name = reinterpret_cast<fn_##name>(GetProcAddress(mod, #name))
 
     RES(m_hAvFormatDll, avformat_open_input);
+
     RES(m_hAvFormatDll, avformat_find_stream_info);
+
     RES(m_hAvFormatDll, avformat_close_input);
+
     RES(m_hAvFormatDll, av_find_best_stream);
+
     RES(m_hAvFormatDll, av_read_frame);
+
     RES(m_hAvFormatDll, av_seek_frame);
 
     RES(m_hAvCodecDll, avcodec_descriptor_name);
+
     RES(m_hAvCodecDll, avcodec_alloc_context3);
+
     RES(m_hAvCodecDll, avcodec_free_context);
+
     RES(m_hAvCodecDll, avcodec_parameters_to_context);
+
     RES(m_hAvCodecDll, avcodec_open2);
+
     RES(m_hAvCodecDll, avcodec_send_packet);
+
     RES(m_hAvCodecDll, avcodec_receive_subtitle);
+
     RES(m_hAvCodecDll, avcodec_find_decoder);
 
     m_ff.av_packet_alloc = reinterpret_cast<fn_av_packet_alloc>(GetProcAddress(m_hAvCodecDll, "av_packet_alloc"));
@@ -469,6 +551,7 @@ bool SubtitleReader::LoadFFmpegDlls() {
 
     if (!m_ff.avformat_open_input || !m_ff.avformat_find_stream_info || !m_ff.avformat_close_input ||
         !m_ff.av_read_frame || !m_ff.av_packet_alloc || !m_ff.av_packet_free || !m_ff.av_packet_unref) {
+
         VSubLog(L"[VIDI] Sub: fungsi FFmpeg kritis "
                 L"tidak ditemukan");
 
@@ -487,6 +570,7 @@ bool SubtitleReader::LoadFFmpegDlls() {
 // ============================================================
 
 void SubtitleReader::FreeFFmpegDlls() {
+
     if (m_hAvFormatDll) {
 
         FreeLibrary(m_hAvFormatDll);
@@ -518,15 +602,18 @@ void SubtitleReader::FreeFFmpegDlls() {
 // ============================================================
 
 void SubtitleReader::FreeFile() {
+
     m_loaded = false;
 
     if (m_codecCtx && m_ff.avcodec_free_context) {
+
         m_ff.avcodec_free_context(&m_codecCtx);
 
         m_codecCtx = nullptr;
     }
 
     if (m_fmtCtx && m_ff.avformat_close_input) {
+
         m_ff.avformat_close_input(&m_fmtCtx);
 
         m_fmtCtx = nullptr;
@@ -536,6 +623,7 @@ void SubtitleReader::FreeFile() {
 
     m_subtitleStreamIndex = -1;
     m_subtitleCodecId = 0;
+
     m_fileOpen = false;
 }
 
@@ -552,7 +640,9 @@ void SubtitleReader::Close() {
 // ============================================================
 
 void SubtitleReader::FullShutdown() {
+
     FreeFile();
+
     FreeFFmpegDlls();
 }
 
@@ -561,6 +651,7 @@ void SubtitleReader::FullShutdown() {
 // ============================================================
 
 bool SubtitleReader::Open(const wchar_t* videoPath) {
+
     FreeFile();
 
     if (!videoPath || !*videoPath)
@@ -642,12 +733,15 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
         int scanned = 0;
 
         while (scanned < 5000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pktFb)) >= 0) {
+
             const int si = pktFb->stream_index;
 
             if (si >= 0 && si < MAX_STREAMS) {
+
                 ++totalPackets[si];
 
                 if (pktFb->data && pktFb->size > 4 && LooksLikeSubtitleText(pktFb->data, pktFb->size)) {
+
                     ++textCounts[si];
                 }
             }
@@ -657,20 +751,27 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
             ++scanned;
         }
 
+        // ----------------------------------------------------
+        // Kembalikan reader ke awal file.
+        // ----------------------------------------------------
+
         if (m_ff.av_seek_frame) {
 
             m_ff.av_seek_frame(m_fmtCtx, -1, 0, 0);
         }
 
         for (int i = 0; i < MAX_STREAMS; ++i) {
+
             if (textCounts[i] <= 0)
                 continue;
 
             if (textCounts[i] < totalPackets[i] / 3) {
+
                 continue;
             }
 
             if (bestStream < 0 || textCounts[i] > textCounts[bestStream]) {
+
                 bestStream = i;
             }
         }
@@ -701,13 +802,16 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
         if (fmtRaw) {
 
             for (unsigned int si = 0; si < fmtRaw->nb_streams && si < MAX_STREAMS; ++si) {
+
                 auto streamRaw = reinterpret_cast<AVStreamCompat*>(fmtRaw->streams[si]);
 
                 if (!streamRaw || !streamRaw->codecpar) {
+
                     continue;
                 }
 
                 if (streamRaw->codecpar->codec_type == AVMEDIA_TYPE_ATTACHMENT) {
+
                     isAttachment[si] = true;
                 }
             }
@@ -722,21 +826,28 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
         auto fmtRaw = reinterpret_cast<AVFormatContextCompat*>(m_fmtCtx);
 
         if (fmtRaw && bestStream >= 0 && bestStream < static_cast<int>(fmtRaw->nb_streams) && fmtRaw->streams) {
+
             auto streamRaw = reinterpret_cast<AVStreamCompat*>(fmtRaw->streams[bestStream]);
 
             if (streamRaw && streamRaw->codecpar) {
+
                 auto parRaw = streamRaw->codecpar;
 
                 if (parRaw->extradata && parRaw->extradata_size > 0) {
+
                     if (!m_assRenderer.LoadTrackFromMemory(reinterpret_cast<const char*>(parRaw->extradata),
                                                            parRaw->extradata_size)) {
+
                         VSubLog(L"[VIDI] Sub: failed to load "
                                 L"ASS codec private");
+
                     } else {
+
                         VSubLog(L"[VIDI] Sub: loaded ASS "
                                 L"codec private (%d bytes)",
                                 parRaw->extradata_size);
                     }
+
                 } else {
 
                     // ------------------------------------------------
@@ -783,7 +894,14 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
 
     if (m_ff.av_seek_frame) {
 
-        m_ff.av_seek_frame(m_fmtCtx, -1, 0, 0);
+        // ----------------------------------------------------
+        // Penting:
+        //
+        // Sekarang subtitle stream sudah diketahui.
+        // Kembalikan packet reader ke awal subtitle stream.
+        // ----------------------------------------------------
+
+        m_ff.av_seek_frame(m_fmtCtx, m_subtitleStreamIndex, 0, 0);
     }
 
     AVRational subTimeBase = {1, 1000000000};
@@ -792,6 +910,7 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
         auto fmtRaw = reinterpret_cast<AVFormatContextCompat*>(m_fmtCtx);
 
         if (fmtRaw && bestStream >= 0 && bestStream < static_cast<int>(fmtRaw->nb_streams) && fmtRaw->streams) {
+
             auto streamRaw = reinterpret_cast<AVStreamCompat*>(fmtRaw->streams[bestStream]);
 
             if (streamRaw)
@@ -810,6 +929,21 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
 
     // --------------------------------------------------------
     // Read subtitle packets
+    //
+    // IMPORTANT:
+    //
+    // TIDAK ADA lagi:
+    //
+    //     scanned < 100000
+    //
+    // Karena scanned menghitung SEMUA packet:
+    //
+    // video + audio + subtitle + attachment
+    //
+    // sehingga subtitle setelah packet ke-100000
+    // sebelumnya tidak pernah dimasukkan ke libass.
+    //
+    // Sekarang baca sampai EOF.
     // --------------------------------------------------------
 
     AVPacketRaw* pkt = reinterpret_cast<AVPacketRaw*>(m_ff.av_packet_alloc());
@@ -827,7 +961,19 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
     int fontsFed = 0;
     int scanned = 0;
 
-    while (scanned < 100000 && m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pkt)) >= 0) {
+    // --------------------------------------------------------
+    // Subtitle diagnostic
+    // --------------------------------------------------------
+
+    long long firstSubtitleMs = -1;
+    long long lastSubtitleMs = -1;
+
+    // --------------------------------------------------------
+    // READ UNTIL EOF
+    // --------------------------------------------------------
+
+    while (m_ff.av_read_frame(m_fmtCtx, reinterpret_cast<AVPacket*>(pkt)) >= 0) {
+
         const int si = pkt->stream_index;
 
         // ----------------------------------------------------
@@ -835,13 +981,16 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
         // ----------------------------------------------------
 
         if (si != bestStream && (si < 0 || si >= MAX_STREAMS || !isAttachment[si])) {
+
             m_ff.av_packet_unref(reinterpret_cast<AVPacket*>(pkt));
 
             ++scanned;
+
             continue;
         }
 
         if (pkt->data && pkt->size > 0) {
+
             // =================================================
             // Subtitle packet
             // =================================================
@@ -850,8 +999,12 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
 
                 int dataSize = pkt->size;
 
+                // ------------------------------------------------
                 // Remove trailing NUL
+                // ------------------------------------------------
+
                 while (dataSize > 0 && pkt->data[dataSize - 1] == '\0') {
+
                     --dataSize;
                 }
 
@@ -868,6 +1021,7 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
                         const double ptsMs = static_cast<double>(pkt->pts) * tbVal * 1000.0;
 
                         if (ptsMs > -9.22e18 && ptsMs < 9.22e18) {
+
                             timecodeMs = static_cast<long long>(std::llround(ptsMs));
                         }
                     }
@@ -876,15 +1030,15 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
                         timecodeMs = 0;
 
                     // ------------------------------------------------
-                    // IMPORTANT:
+                    // Duration
                     //
-                    // Pakai duration asli packet.
+                    // PENTING:
                     //
-                    // JANGAN:
+                    // Jangan menggunakan:
                     //
                     // nextPTS - currentPTS
                     //
-                    // karena ASS event boleh overlap.
+                    // karena event ASS bisa overlap.
                     // ------------------------------------------------
 
                     long long durationMs = 5000;
@@ -893,34 +1047,41 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
 
                         const double duration = static_cast<double>(pkt->duration) * tbVal * 1000.0;
 
-                        if (duration > 0 && duration < 9.22e18) {
+                        if (duration > 0.0 && duration < 9.22e18) {
+
                             durationMs = static_cast<long long>(std::llround(duration));
                         }
                     }
 
-                    // ------------------------------------------------
-                    // Fallback
-                    // ------------------------------------------------
-
                     if (durationMs <= 0)
                         durationMs = 5000;
-
-                    // ------------------------------------------------
-                    // Minimum duration
-                    // ------------------------------------------------
 
                     if (durationMs < 1)
                         durationMs = 1;
 
                     // ------------------------------------------------
-                    // Maximum safety duration
+                    // Maximum fallback safety.
+                    //
+                    // Tidak mengubah event yang normal.
                     // ------------------------------------------------
 
                     if (durationMs > 30000)
                         durationMs = 30000;
 
                     // ------------------------------------------------
-                    // Debug
+                    // Diagnostic subtitle range
+                    // ------------------------------------------------
+
+                    if (firstSubtitleMs < 0)
+                        firstSubtitleMs = timecodeMs;
+
+                    if (timecodeMs > lastSubtitleMs) {
+
+                        lastSubtitleMs = timecodeMs;
+                    }
+
+                    // ------------------------------------------------
+                    // Debug first 20 subtitle events
                     // ------------------------------------------------
 
                     if (fed < 20) {
@@ -931,11 +1092,27 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
                             previewSize = 100;
 
                         std::string preview(reinterpret_cast<char*>(pkt->data), previewSize);
+
                         VSubLog(L"[VIDI] Sub: packet[%d] "
                                 L"start=%lldms "
                                 L"duration=%lldms "
                                 L"text='%hs'",
                                 fed, timecodeMs, durationMs, preview.c_str());
+                    }
+
+                    // ------------------------------------------------
+                    // Debug every 500 subtitle events
+                    //
+                    // Berguna untuk file panjang.
+                    // ------------------------------------------------
+
+                    if (fed > 0 && fed % 500 == 0) {
+
+                        VSubLog(L"[VIDI] Sub: progress "
+                                L"events=%d "
+                                L"last=%lldms "
+                                L"scanned=%d",
+                                fed, timecodeMs, scanned);
                     }
 
                     // ------------------------------------------------
@@ -946,6 +1123,7 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
 
                     if (m_assRenderer.ProcessChunk(reinterpret_cast<const char*>(pkt->data), dataSize, timecodeMs,
                                                    durationMs)) {
+
                         ++fed;
                     }
                 }
@@ -956,6 +1134,7 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
             // =================================================
 
             else if (si >= 0 && si < MAX_STREAMS && isAttachment[si] && fontsFed < 100) {
+
                 const uint8_t* fontData = pkt->data;
 
                 const int fontSize = pkt->size;
@@ -968,6 +1147,7 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
                 }
 
                 for (const auto& fontName : fontNames) {
+
                     m_assRenderer.AddFont(fontName.c_str(), reinterpret_cast<const char*>(fontData), fontSize);
                 }
 
@@ -978,6 +1158,7 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
                     std::string names;
 
                     for (size_t i = 0; i < fontNames.size(); ++i) {
+
                         if (i != 0)
                             names += ", ";
 
@@ -993,14 +1174,32 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
             }
         }
 
+        // ----------------------------------------------------
+        // Release packet
+        // ----------------------------------------------------
+
         m_ff.av_packet_unref(reinterpret_cast<AVPacket*>(pkt));
 
         ++scanned;
     }
 
+    // --------------------------------------------------------
+    // Free packet
+    // --------------------------------------------------------
+
     m_ff.av_packet_free(reinterpret_cast<AVPacket**>(&pkt));
 
-    VSubLog(L"[VIDI] Sub: fed %d subtitle packets", fed);
+    // --------------------------------------------------------
+    // Final diagnostic
+    // --------------------------------------------------------
+
+    VSubLog(L"[VIDI] Sub: scan complete, "
+            L"total packets=%d, "
+            L"subtitle events=%d, "
+            L"fonts=%d, "
+            L"first=%lldms, "
+            L"last=%lldms",
+            scanned, fed, fontsFed, firstSubtitleMs, lastSubtitleMs);
 
     // --------------------------------------------------------
     // Load attachment fonts from codecpar extradata
@@ -1014,21 +1213,26 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
             int extraFonts = 0;
 
             for (unsigned int si = 0; si < fmtRaw->nb_streams; ++si) {
+
                 if (static_cast<int>(si) == bestStream) {
+
                     continue;
                 }
 
                 auto streamRaw = reinterpret_cast<AVStreamCompat*>(fmtRaw->streams[si]);
 
                 if (!streamRaw || !streamRaw->codecpar) {
+
                     continue;
                 }
 
                 if (streamRaw->codecpar->codec_type != AVMEDIA_TYPE_ATTACHMENT) {
+
                     continue;
                 }
 
                 if (!streamRaw->codecpar->extradata || streamRaw->codecpar->extradata_size <= 0) {
+
                     continue;
                 }
 
@@ -1044,6 +1248,7 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
                 }
 
                 for (const auto& fontName : fontNames) {
+
                     m_assRenderer.AddFont(fontName.c_str(), reinterpret_cast<const char*>(data), size);
                 }
 
@@ -1069,7 +1274,9 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
                 track->n_events, track->n_styles);
 
         if (track->n_styles > 0 && track->styles) {
+
             for (int i = 0; i < track->n_styles; ++i) {
+
                 ASS_Style& style = track->styles[i];
 
                 VSubLog(L"[VIDI] Sub: style[%d] "
@@ -1138,6 +1345,7 @@ bool SubtitleReader::Open(const wchar_t* videoPath) {
 // ============================================================
 
 int SubtitleReader::GetSubtitleStreamCount() const {
+
     if (!m_fileOpen)
         return 0;
 
@@ -1149,9 +1357,11 @@ int SubtitleReader::GetSubtitleStreamCount() const {
 // ============================================================
 
 std::vector<SubtitleInfo> SubtitleReader::GetSubtitleStreams() const {
+
     std::vector<SubtitleInfo> result;
 
     if (!m_fileOpen || m_subtitleStreamIndex < 0) {
+
         return result;
     }
 
@@ -1186,6 +1396,7 @@ std::vector<SubtitleInfo> SubtitleReader::GetSubtitleStreams() const {
 // ============================================================
 
 RenderResult SubtitleReader::RenderFrame(double timeSeconds) {
+
     RenderResult result;
 
     result.changed = false;
@@ -1199,6 +1410,7 @@ RenderResult SubtitleReader::RenderFrame(double timeSeconds) {
     const double timeMsDouble = timeSeconds * 1000.0;
 
     if (timeMsDouble > 9.22e18 || timeMsDouble < -9.22e18) {
+
         return result;
     }
 
@@ -1211,14 +1423,13 @@ RenderResult SubtitleReader::RenderFrame(double timeSeconds) {
     result.bitmaps.reserve(assResult.bitmaps.size());
 
     for (auto& img : assResult.bitmaps) {
+
         RenderedBitmap rb;
 
         rb.x = img.x;
-
         rb.y = img.y;
 
         rb.width = img.width;
-
         rb.height = img.height;
 
         rb.color = img.color;
