@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <atomic>
+
 #include "ffmpeg_dynload.hh"
 #include "assRenderer.hh"
 
@@ -18,6 +19,13 @@ struct SubtitleInfo {
     bool isTextBased;
 };
 
+struct SubtitlePacketData {
+    std::vector<uint8_t> data;
+    long long ptsMs = 0;
+    long long durationMs = 0;
+    bool hasValidDuration = false;
+};
+
 class SubtitleReader {
   private:
     HMODULE m_hAvFormatDll;
@@ -25,8 +33,10 @@ class SubtitleReader {
     HMODULE m_hAvUtilDll;
 
     FFmpegFuncs m_ff;
+
     AVFormatContext* m_fmtCtx;
     AVCodecContext* m_codecCtx;
+
     int m_subtitleStreamIndex;
     int m_subtitleCodecId;
 
@@ -34,6 +44,7 @@ class SubtitleReader {
     bool m_fileOpen;
 
     AssRenderer m_assRenderer;
+
     std::atomic<bool> m_loaded{false};
 
     bool LoadFFmpegDlls();
@@ -45,16 +56,20 @@ class SubtitleReader {
     ~SubtitleReader();
 
     bool Open(const wchar_t* videoPath);
+
     void Close();
     void FullShutdown();
+
     bool IsLoaded() const {
         return m_loaded;
     }
+
     bool IsOpen() const {
         return m_fileOpen;
     }
 
     int GetSubtitleStreamCount() const;
+
     std::vector<SubtitleInfo> GetSubtitleStreams() const;
 
     AssRenderer& GetAssRenderer() {
@@ -63,5 +78,7 @@ class SubtitleReader {
 
     RenderResult RenderFrame(double timeSeconds);
 };
+
 } // namespace kernelPlayerVidi
-#endif
+
+#endif // SUBTITLE_READER_HH
