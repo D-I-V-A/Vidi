@@ -17,6 +17,18 @@ LRESULT CALLBACK VideoPlayerGUI::ProgressSubclassProc(HWND hwnd, UINT uMsg, WPAR
     case WM_PAINT: {
         if (!self)
             break;
+
+        static bool s_lastFs = false;
+        if (self->m_isFullscreen != s_lastFs) {
+            s_lastFs = self->m_isFullscreen;
+            wchar_t buf[128];
+            swprintf_s(buf, L"[VIDI] ProgressSubclass WM_PAINT: "
+                            L"fullscreen changed to %d, "
+                            L"calling DrawVlcSeekbar directly\n",
+                       self->m_isFullscreen);
+            OutputDebugStringW(buf);
+        }
+
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
 
@@ -31,7 +43,7 @@ LRESULT CALLBACK VideoPlayerGUI::ProgressSubclassProc(HWND hwnd, UINT uMsg, WPAR
         FillRect(dcMem, &rc, hBgBrush);
         DeleteObject(hBgBrush);
 
-        SendMessage(hwnd, WM_PRINTCLIENT, (WPARAM)dcMem, PRF_CLIENT);
+        self->DrawVlcSeekbar(dcMem);
 
         BitBlt(hdc, 0, 0, rc.right, rc.bottom, dcMem, 0, 0, SRCCOPY);
 
@@ -286,7 +298,8 @@ void VideoPlayerGUI::SetProgressPos(int pos) {
         return;
 
     SendMessage(g_hProgress, TBM_SETPOS, TRUE, pos);
-    InvalidateRect(g_hProgress, nullptr, FALSE);
+    if (!m_isFullscreen)
+        InvalidateRect(g_hProgress, nullptr, FALSE);
 }
 
 // ==========================================

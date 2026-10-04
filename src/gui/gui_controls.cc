@@ -23,9 +23,16 @@ void VideoPlayerGUI::OnMediaReady() {
     SendMessage(g_hProgress, TBM_SETRANGEMAX, TRUE, m_progressRangeMax);
     SetProgressPos(0);
     UpdateTimeLabel(0.0, dur);
+    // Reset state transient — biar tidak nyangkut dari file sebelumnya
+    m_hasPendingSeek = false;
+    m_lastDurCheckTick = 0;
     FitWindowToVideo();
 
     m_player.ShowVideoWindow();
+    // Refresh overlay kalau sedang fullscreen
+    if (m_isFullscreen && m_hFsOverlay && IsWindowVisible(m_hFsOverlay)) {
+        InvalidateRect(m_hFsOverlay, nullptr, FALSE);
+    }
 }
 
 // ==========================================
@@ -224,15 +231,24 @@ void VideoPlayerGUI::OnTimerTick() {
     }
 
     double pos = m_player.GetPosition();
+    UpdateTimeLabel(pos, m_cachedDuration);
     int sliderPos = static_cast<int>((pos / dur) * m_progressRangeMax);
     if (sliderPos < 0)
         sliderPos = 0;
     if (sliderPos > m_progressRangeMax)
         sliderPos = m_progressRangeMax;
     SetProgressPos(sliderPos);
-    UpdateTimeLabel(pos, dur);
+    if (!m_isFullscreen)
+        UpdateTimeLabel(pos, dur);
 
     UpdateSubtitleDisplays(pos);
+    // ========================================================
+    // FIX: repaint fullscreen overlay supaya time label &
+    //      progress bar di bar atas ikut update realtime.
+    // ========================================================
+    if (m_isFullscreen && m_hFsOverlay && IsWindowVisible(m_hFsOverlay)) {
+        InvalidateRect(m_hFsOverlay, nullptr, FALSE);
+    }
 }
 
 void VideoPlayerGUI::UpdateTimeLabel(double posSeconds, double durSeconds) {
@@ -242,24 +258,25 @@ void VideoPlayerGUI::UpdateTimeLabel(double posSeconds, double durSeconds) {
     if (d <= 0) {
         swprintf_s(buf, L"--:-- / --:--");
     } else if (d >= 3600) {
-        // >= 1 jam: HH:MM:SS
         swprintf_s(buf, L"%d:%02d:%02d / %d:%02d:%02d", p / 3600, (p % 3600) / 60, p % 60, d / 3600, (d % 3600) / 60,
                    d % 60);
     } else {
-        // < 1 jam: MM:SS
         swprintf_s(buf, L"%02d:%02d / %02d:%02d", p / 60, p % 60, d / 60, d % 60);
     }
 
     SetWindowTextW(g_hTimeLabel, buf);
-    InvalidateRect(g_hTimeLabel, nullptr, FALSE);
 
-    int needed = MeasureStringWidth(g_hTimeLabel, m_hTimeFont, buf);
-    RECT rc;
-    GetWindowRect(g_hTimeLabel, &rc);
-    if (needed > (rc.right - rc.left) && g_hMainWnd) {
-        RECT rcC;
-        GetClientRect(g_hMainWnd, &rcC);
-        LayoutControls(rcC.right, rcC.bottom);
+    if (!m_isFullscreen) {
+        InvalidateRect(g_hTimeLabel, nullptr, FALSE);
+
+        int needed = MeasureStringWidth(g_hTimeLabel, m_hTimeFont, buf);
+        RECT rc;
+        GetWindowRect(g_hTimeLabel, &rc);
+        if (needed > (rc.right - rc.left) && g_hMainWnd) {
+            RECT rcC;
+            GetClientRect(g_hMainWnd, &rcC);
+            LayoutControls(rcC.right, rcC.bottom);
+        }
     }
 }
 

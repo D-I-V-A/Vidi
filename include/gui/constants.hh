@@ -22,6 +22,14 @@ inline constexpr int MAX_SUB_OVERLAYS = 2;
 inline constexpr UINT TIMER_INTERVAL_MS = 33;
 inline constexpr int FULLSCREEN_HIDE_MS = 2500;
 
+// fullscreen overlay layout
+inline constexpr int FS_PROGRESS_H = 5;      // tinggi track progress bar
+inline constexpr int FS_PROGRESS_ROW_H = 16; // total row 1 (track + padding)
+inline constexpr int FS_CONTROLS_ROW_H = 36; // row 2 (buttons + time)
+inline constexpr int FS_EDGE = 12;           // padding kiri/kanan
+inline constexpr int FS_BTN_SIZE = 26;       // ukuran tombol
+inline constexpr int FS_SPACING = 8;         // gap antar elemen
+
 inline double GetDpiScale(HWND hwnd) {
     UINT dpi = GetDpiForWindow(hwnd);
     return (double)dpi / 96.0;
