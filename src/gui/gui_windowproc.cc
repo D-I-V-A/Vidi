@@ -86,38 +86,36 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             break;
 
         HDC hdc = reinterpret_cast<HDC>(wParam);
+        HWND hCtl = reinterpret_cast<HWND>(lParam);
 
-        if ((HWND)lParam == self->m_hTimeTip) {
+        // Tooltip waktu (hover di seek bar) — tetap dark
+        if (hCtl == self->m_hTimeTip) {
+            SetBkMode(hdc, OPAQUE);
             SetBkColor(hdc, COLOR_TIP_BG);
-
             SetTextColor(hdc, RGB(255, 255, 255));
-
             return (INT_PTR)hBrushTip;
         }
 
+        // Time label — PUTIH + teks gelap
+        if (hCtl == self->g_hTimeLabel) {
+            SetBkMode(hdc, OPAQUE);
+            SetBkColor(hdc, COLOR_MODERN_BG);
+            SetTextColor(hdc, COLOR_MODERN_TEXT);
+            return (INT_PTR)hBrushNormal;
+        }
+
+        // Fullscreen fallback (jarang kena karena overlay custom-paint)
         if (self->m_isFullscreen) {
             SetBkMode(hdc, TRANSPARENT);
-
             SetTextColor(hdc, RGB(255, 255, 255));
-
             return (INT_PTR)hBrushTimeFs;
         }
 
-        if ((HWND)lParam == self->g_hTimeLabel) {
-            SetBkColor(hdc, COLOR_TIP_BG);
-
-            SetTextColor(hdc, RGB(255, 255, 255));
-
-            return (INT_PTR)hBrushTimeFs;
-        }
-
+        // Static lainnya
         SetBkMode(hdc, TRANSPARENT);
-
         SetTextColor(hdc, COLOR_MODERN_TEXT);
-
         return (INT_PTR)hBrushNormal;
     }
-
         // ========================================================
         // WM_NOTIFY
         // ========================================================
@@ -139,6 +137,15 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         // ----------------------------------------------------
 
         if (pnmh->hwndFrom == self->g_hProgress) {
+            static bool s_warned = false;
+            if (!s_warned) {
+                s_warned = true;
+                OutputDebugStringW(L"[VIDI] WARNING: NM_CUSTOMDRAW "
+                                   L"reached for g_hProgress "
+                                   L"(should not happen after "
+                                   L"WM_PAINT direct-draw fix)\n");
+            }
+
             LPNMCUSTOMDRAW pcd = reinterpret_cast<LPNMCUSTOMDRAW>(lParam);
 
             if (pcd->dwDrawStage == CDDS_PREPAINT)
@@ -338,7 +345,7 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         // ----------------------------------------------------
 
         if (self->m_isFullscreen) {
-            self->LayoutFullscreen(clientW, clientH);
+            self->LayoutFsOverlay(clientW, clientH);
         } else {
             self->LayoutControls(clientW, clientH);
         }
@@ -391,11 +398,23 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 
         // ========================================================
         // WM_MOUSEMOVE
+        //
+        // FIX: reset hide-timer & unhide cursor saat fullscreen,
+        // supaya overlay mau muncul lagi walau cursor bergerak
+        // di area video (di luar overlay).
         // ========================================================
 
     case WM_MOUSEMOVE: {
         if (!self)
             break;
+
+        if (self->m_isFullscreen) {
+            if (self->m_cursorHidden) {
+                ShowCursor(TRUE);
+                self->m_cursorHidden = false;
+            }
+            self->PokeOSControls();
+        }
 
         int x = static_cast<int>(static_cast<short>(LOWORD(lParam)));
 
@@ -446,6 +465,10 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 
         // ========================================================
         // WM_TIMER
+        //
+        // FIX: JANGAN reset timer di dalam WM_TIMER.
+        // Timer fire = sudah 2.5 dtk tidak ada gerakan mouse.
+        // Reset hanya boleh dari WM_MOUSEMOVE → PokeOSControls().
         // ========================================================
 
     case WM_TIMER: {
@@ -456,16 +479,12 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             self->OnTimerTick();
         } else if (wParam == ID_TIMER_OSI_HIDE) {
             if (self->m_isFullscreen && !self->m_isDraggingProgress) {
-                if (self->CursorOverControls()) {
-                    SetTimer(hwnd, ID_TIMER_OSI_HIDE, FULLSCREEN_HIDE_MS, nullptr);
-                } else {
-                    self->ShowOSControls(false);
+                // Sembunyikan overlay + cursor.
+                self->ShowOSControls(false);
 
-                    if (!self->m_cursorHidden) {
-                        ShowCursor(FALSE);
-
-                        self->m_cursorHidden = true;
-                    }
+                if (!self->m_cursorHidden) {
+                    ShowCursor(FALSE);
+                    self->m_cursorHidden = true;
                 }
             }
         }
@@ -511,6 +530,9 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         // WM_ACTIVATEAPP
         //
         // INI YANG MENGONTROL ALT+TAB.
+        //
+        // FIX: kill hide-timer saat app kehilangan fokus,
+        // supaya timer tidak fire saat app di background.
         // ========================================================
 
     case WM_ACTIVATEAPP: {
@@ -520,11 +542,18 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         if (wParam == FALSE) {
             self->m_appActivate = false;
 
+            // Matikan hide-timer saat app tidak fokus.
+            KillTimer(hwnd, ID_TIMER_OSI_HIDE);
+
             // Sembunyikan subtitle
             for (int i = 0; i < MAX_SUB_OVERLAYS; ++i) {
                 if (self->m_hSubOverlay[i])
                     ShowWindow(self->m_hSubOverlay[i], SW_HIDE);
             }
+
+            // Sembunyikan fullscreen overlay
+            if (self->m_hFsOverlay)
+                ShowWindow(self->m_hFsOverlay, SW_HIDE);
 
             // Paksa SEMUA child window Vidi turun.
             EnumChildWindows(
@@ -612,7 +641,13 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 
                 int clientH = rcClient.bottom - rcClient.top;
 
-                self->LayoutFullscreen(clientW, clientH);
+                self->LayoutFsOverlay(clientW, clientH);
+
+                // Re-create overlay if destroyed during Alt+Tab
+                if (!self->m_hFsOverlay) {
+                    self->CreateFsOverlay();
+                    self->LayoutFsOverlay(monW, monH);
+                }
 
                 self->m_player.UpdateVideoSize();
 
@@ -796,6 +831,8 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 
         // ========================================================
         // WM_DESTROY
+        //
+        // FIX: kill ID_TIMER_OSI_HIDE juga, bukan cuma UPDATE.
         // ========================================================
 
     case WM_DESTROY: {
@@ -840,9 +877,16 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             }
         }
 
+        if (self->m_hFsOverlay) {
+            ShowWindow(self->m_hFsOverlay, SW_HIDE);
+            DestroyWindow(self->m_hFsOverlay);
+            self->m_hFsOverlay = nullptr;
+        }
+
         WTSUnRegisterSessionNotification(hwnd);
 
         KillTimer(hwnd, ID_TIMER_UPDATE);
+        KillTimer(hwnd, ID_TIMER_OSI_HIDE);
 
         PostQuitMessage(0);
 

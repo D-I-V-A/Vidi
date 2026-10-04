@@ -2,7 +2,10 @@
 #include <cmath>
 
 namespace guiVidi {
-
+struct BtnInfo {
+    HWND h;
+    bool valid;
+};
 // ==========================================
 // LAYOUT CONTROLS
 // ==========================================
@@ -42,10 +45,6 @@ void VideoPlayerGUI::LayoutControls(int width, int height) {
     int progressY = videoHeight + PAD_TOP;
     int btnRowY = progressY + PROGRESS_H + GAP_BAR_BTN;
 
-    struct BtnInfo {
-        HWND h;
-        bool valid;
-    };
     BtnInfo allBtns[] = {{g_hSkipBack, m_hIconSkipBack != nullptr},
                          {g_hPlayBtn, m_hIconPlay != nullptr},
                          {g_hStopBtn, m_hIconStop != nullptr},
@@ -186,14 +185,28 @@ void VideoPlayerGUI::LayoutFullscreen(int width, int height) {
     if (g_hProgress)
         SetWindowPos(g_hProgress, HWND_TOP, EDGE, progressY, width - EDGE * 2, PROGRESS_H, SWP_SHOWWINDOW);
 
-    HWND btns[8] = {g_hPlayBtn,       g_hSkipBack,    g_hStopBtn, g_hSkipForward,
-                    g_hFullscreenBtn, g_hPlaylistBtn, g_hLoopBtn, g_hShuffleBtn};
+    BtnInfo btns[8] = {
+        {g_hPlayBtn, m_hIconPlay != nullptr},
+        {g_hSkipBack, m_hIconSkipBack != nullptr},
+        {g_hStopBtn, m_hIconStop != nullptr},
+        {g_hSkipForward, m_hIconSkipForward != nullptr},
+        {g_hFullscreenBtn, m_hIconFullscreen != nullptr},
+        {g_hPlaylistBtn, m_hIconPlaylist != nullptr},
+        {g_hLoopBtn, m_hIconLoop != nullptr},
+        {g_hShuffleBtn, m_hIconShuffle != nullptr},
+    };
+    int validCount = 0;
     int stripW = BTN_SIZE * 8 + SP * 7;
     int bx = (width - stripW) / 2;
-    for (HWND h : btns) {
-        if (h)
-            SetWindowPos(h, HWND_TOP, bx, btnRowY, BTN_SIZE, BTN_SIZE, SWP_SHOWWINDOW);
-        bx += BTN_SIZE + SP;
+    for (auto& b : btns) {
+        if (b.h) {
+            if (b.valid) {
+                SetWindowPos(b.h, HWND_TOP, bx, btnRowY, BTN_SIZE, BTN_SIZE, SWP_SHOWWINDOW);
+                bx += BTN_SIZE + SP;
+            } else {
+                ShowWindow(b.h, SW_HIDE);
+            }
+        }
     }
 
     if (g_hVolIcon)

@@ -45,10 +45,12 @@ class VideoPlayerGUI {
     double m_cachedDuration;
     WINDOWPLACEMENT m_prevPlacement;
     bool m_isFullscreen;
+    bool m_transitionDark;
     bool m_cursorHidden;
     bool m_wasMinimized;
     POINT m_lastCursor;
     HWND m_hTimeTip;
+    HWND m_hFsOverlay;
     bool m_seekHot;
     int m_hotX;
 
@@ -111,6 +113,12 @@ class VideoPlayerGUI {
     void ShowOSControls(bool visible);
     void PokeOSControls();
     bool CursorOverControls();
+    bool CursorOverFsOverlay();
+    void CreateFsOverlay();
+    void DestroyFsOverlay();
+    void LayoutFsOverlay(int screenW, int screenH);
+    void ShowFsOverlay(bool visible);
+    static LRESULT CALLBACK FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void RecoverVideo();
     void LayoutFullscreen(int width, int height);
     void CreateSubtitleOverlay(HWND hwnd);
@@ -174,6 +182,7 @@ class VideoPlayerGUI {
           m_isMuted(false),
           m_cachedDuration(0.0),
           m_hTimeTip(nullptr),
+          m_hFsOverlay(nullptr),
           m_seekHot(false),
           m_hotX(0),
           m_volHot(false),
@@ -182,6 +191,7 @@ class VideoPlayerGUI {
           m_isLooping(false),
           m_isShuffle(false),
           m_isFullscreen(false),
+          m_transitionDark(false),
           m_cursorHidden(false),
           m_wasMinimized(false),
           m_lastCursor{-1, -1},

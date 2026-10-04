@@ -30,7 +30,7 @@ LRESULT CALLBACK VideoPlayerGUI::VolumeSubclassProc(HWND hwnd, UINT uMsg, WPARAM
         FillRect(dcMem, &rc, hBgBrush);
         DeleteObject(hBgBrush);
 
-        SendMessage(hwnd, WM_PRINTCLIENT, (WPARAM)dcMem, PRF_CLIENT);
+        self->DrawVlcVolumeBar(dcMem);
 
         BitBlt(hdc, 0, 0, rc.right, rc.bottom, dcMem, 0, 0, SRCCOPY);
 
