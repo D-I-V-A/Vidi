@@ -448,11 +448,11 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
         if (thumbCx + thumbR > pTrack.right)
             thumbCx = pTrack.right - thumbR;
 
-        HBRUSH hPThumb = CreateSolidBrush(COLOR_SEEK_FILL);
-        HPEN hPThumbBorder = CreatePen(PS_SOLID, 1, RGB(200, 100, 0));
+        HBRUSH hPThumb = CreateSolidBrush(COLOR_MODERN_BG);
+        HPEN hPThumbBorder = CreatePen(PS_SOLID, 1, RGB(80, 80, 80));
         HGDIOBJ hOldBrThumb = SelectObject(dcMem, hPThumb);
         HGDIOBJ hOldPenThumb = SelectObject(dcMem, hPThumbBorder);
-        Ellipse(dcMem, thumbCx - thumbR, thumbCy - thumbR, thumbCx + thumbR, thumbCy + thumbR);
+        Rectangle(dcMem, thumbCx - thumbR, thumbCy - thumbR, thumbCx + thumbR, thumbCy + thumbR);
         SelectObject(dcMem, hOldBrThumb);
         SelectObject(dcMem, hOldPenThumb);
         DeleteObject(hPThumb);

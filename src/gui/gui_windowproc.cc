@@ -748,11 +748,35 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 
     case WM_APP_PLAYBACK_ENDED: {
         if (self) {
-            self->SetPlayPauseUI(false);
+            // ===== AUTO-NEXT LOGIC =====
+            bool handled = false;
 
-            self->SetProgressPos(self->m_progressRangeMax);
+            // 1. Kalau shuffle aktif → pilih random (bukan yang sekarang)
+            if (self->m_isShuffle && self->m_playlist.size() > 1) {
+                int next;
+                do {
+                    next = rand() % (int)self->m_playlist.size();
+                } while (next == self->m_playlistIndex);
+                self->PlayFileFromPlaylist(next);
+                handled = true;
+            }
+            // 2. Kalau ada file berikutnya → lanjut
+            else if (self->m_playlistIndex + 1 < (int)self->m_playlist.size()) {
+                self->PlayFileFromPlaylist(self->m_playlistIndex + 1);
+                handled = true;
+            }
+            // 3. Kalau file terakhir & loop aktif → ulang dari awal
+            else if (self->m_isLooping && !self->m_playlist.empty()) {
+                self->PlayFileFromPlaylist(0);
+                handled = true;
+            }
+
+            // 4. Kalau tidak ada yang handle → stop biasa
+            if (!handled) {
+                self->SetPlayPauseUI(false);
+                self->SetProgressPos(self->m_progressRangeMax);
+            }
         }
-
         return 0;
     }
 
