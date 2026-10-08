@@ -9,6 +9,8 @@
 #include <vsstyle.h>
 #include <Uxtheme.h>
 #include <map>
+#include <vector>
+#include <string>
 
 namespace guiVidi {
 
@@ -60,6 +62,11 @@ class VideoPlayerGUI {
 
     bool m_isLooping;
     bool m_isShuffle;
+    std::vector<std::wstring> m_playlist;
+    int m_playlistIndex;
+    HWND g_hPlaylistBox;
+    HWND m_hPlaylistWnd;
+    bool m_playlistVisible;
 
     DWORD m_lastVideoClickTick;
     short m_lastVideoClickX, m_lastVideoClickY;
@@ -92,6 +99,12 @@ class VideoPlayerGUI {
     void OnHScroll(WPARAM wParam, LPARAM lParam);
     void OnTimerTick();
     void OpenFileDialog();
+    void OpenFolderDialog();
+    void CreatePlaylistWindow();
+    void TogglePlaylistWindow();
+    void ShowPlaylistFromMenu();
+    static LRESULT CALLBACK PlaylistWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+    void PlayFileFromPlaylist(int index);
     void UpdateTimeLabel(double posSeconds, double durSeconds);
     void SetPlayPauseUI(bool playing);
     void SeekFromTrackbarClick(int mouseX);
@@ -190,6 +203,10 @@ class VideoPlayerGUI {
           m_volHotX(0),
           m_isLooping(false),
           m_isShuffle(false),
+          m_playlistIndex(-1),
+          g_hPlaylistBox(nullptr),
+          m_playlistVisible(false),
+          m_hPlaylistWnd(nullptr),
           m_isFullscreen(false),
           m_transitionDark(false),
           m_cursorHidden(false),

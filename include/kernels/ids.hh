@@ -26,7 +26,8 @@
 #define IDC_BTN_SHUFFLE 1016
 #define IDC_VOL_ICON 1017
 #define IDC_VOL_PERCENT 1018
-
+#define IDC_PLAYLIST_BOX 1100
+#define IDI_PLAYLIST_WND 1101
 // Alias untuk kompatibilitas kode lama (opsional)
 #define IDC_BTN_PLAY IDC_PLAY
 #define IDC_BTN_PAUSE IDC_PAUSE
@@ -183,9 +184,16 @@
 // ==========================================
 inline HACCEL CreatePlayerAccelTable() {
     ACCEL accels[] = {
-        {FVIRTKEY, VK_SPACE, IDM_PLAY}, {FVIRTKEY, 'S', IDM_STOP},           {FVIRTKEY, VK_LEFT, IDM_PREVIOUS},
-        {FVIRTKEY, VK_RIGHT, IDM_NEXT}, {FVIRTKEY, VK_UP, IDM_INCREASE_VOL}, {FVIRTKEY, VK_DOWN, IDM_DECREASE_VOL},
-        {FVIRTKEY, 'M', IDM_MUTE},      {FVIRTKEY, 'F', IDM_FULLSCREEN},     {FVIRTKEY | FCONTROL, 'O', IDM_OPEN_FILE},
+        {FVIRTKEY, VK_SPACE, IDM_PLAY},
+        {FVIRTKEY, 'S', IDM_STOP},
+        {FVIRTKEY, VK_LEFT, IDM_PREVIOUS},
+        {FVIRTKEY, VK_RIGHT, IDM_NEXT},
+        {FVIRTKEY, VK_UP, IDM_INCREASE_VOL},
+        {FVIRTKEY, VK_DOWN, IDM_DECREASE_VOL},
+        {FVIRTKEY, 'M', IDM_MUTE},
+        {FVIRTKEY, 'F', IDM_FULLSCREEN},
+        {FVIRTKEY | FCONTROL, 'O', IDM_OPEN_FILE},
+        {FVIRTKEY | FCONTROL | FSHIFT, 'O', IDM_OPEN_FOLDER},
     };
     return CreateAcceleratorTable(accels, sizeof(accels) / sizeof(ACCEL));
 }

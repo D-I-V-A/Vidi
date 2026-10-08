@@ -61,9 +61,9 @@ void VideoPlayerGUI::BeginSubtitleSeekDelay() {
             ShowWindow(m_hSubOverlay[i], SW_HIDE);
         }
     }
-    m_subNeedsUpdate = false;
     // subtitle akan boleh dirender kembali setelah 150ms
     m_subtitleSeekUntilTick = GetTickCount() + 150;
+    m_subNeedsUpdate = true;
 }
 
 // ============================================================

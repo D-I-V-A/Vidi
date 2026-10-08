@@ -1002,11 +1002,18 @@ DWORD WINAPI DirectShowPlayer::SubtitleLoadThreadProc(LPVOID lpParam) {
     return 0;
 }
 
+// [FIX PERFORMA] Timeout diturunkan 5000 -> 500 ms.
+// Kalau thread subtitle lama masih hidup (jarang), biarkan selesai sendiri;
+// PostMessage-nya akan diabaikan GUI karena mediaReadyGen sudah berubah.
 void DirectShowPlayer::WaitForSubtitles() {
     if (m_hSubThread) {
-        WaitForSingleObject(m_hSubThread, 5000); // 5s timeout, prevent UI freeze
-        CloseHandle(m_hSubThread);
-        m_hSubThread = nullptr;
+        DWORD r = WaitForSingleObject(m_hSubThread, 500);
+        if (r == WAIT_OBJECT_0) {
+            CloseHandle(m_hSubThread);
+            m_hSubThread = nullptr;
+        }
+        // Timeout: thread lama tetap jalan, handle dibiarkan hidup.
+        // Akan di-close di Shutdown() atau OpenFile berikutnya.
     }
 }
 
@@ -1021,6 +1028,25 @@ void DirectShowPlayer::Pause() {
 void DirectShowPlayer::Stop() {
     if (m_pControl)
         m_pControl->Stop();
+}
+
+void DirectShowPlayer::CloseFile() {
+    // ==========================================
+    // CLOSE FILE — release semua resource graph
+    // Dipakai saat ganti file supaya graph lama benar-benar bersih
+    // sebelum OpenFile berikutnya. Beda dengan Stop() yang cuma
+    // pause playback tapi tetap simpan graph.
+    // ==========================================
+
+    // Lepas subtitle reader file sebelumnya
+    WaitForSubtitles();
+
+    // Release graph + semua filter (LAV, VSFilter, SampleGrabber, DLL)
+    DestroyGraph();
+
+    // Reset state
+    m_graphBuilt = false;
+    m_vsFilterSubtitleActive = false;
 }
 
 long DirectShowPlayer::LinearToDShowVolume(float linearVol) {
@@ -1145,12 +1171,18 @@ void DirectShowPlayer::HandleGraphEvent() {
                 PostMessage(m_hNotifyWnd, WM_APP_PLAYBACK_ENDED, 0, 0);
             break;
 
-        case EC_REPAINT:
-            // VMR kehilangan surface (biasanya setelah maximize/restore):
-            // sinkronkan posisi dulu, baru paksa decoder push 1 frame.
+        case EC_REPAINT: {
+            static DWORD s_lastRepaintTick = 0;
+            DWORD nowTick = GetTickCount();
+            if (nowTick - s_lastRepaintTick < 200) {
+                break;
+            }
+            s_lastRepaintTick = nowTick;
+
             UpdateVideoSize();
             ForceFrameRefresh();
             break;
+        }
 
         case EC_ERRORABORT:
         case EC_USERABORT:
