@@ -6,21 +6,34 @@ namespace guiVidi {
 
 bool VideoPlayerGUI::Initialize(HINSTANCE hInstance, int nCmdShow) {
     const wchar_t CLASS_NAME[] = L"Vidi-VideoPlayerWindow";
-    WNDCLASS wc = {};
+
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(WNDCLASSEXW); // ← WAJIB untuk WNDCLASSEX
+    wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = VideoPlayerGUI::WindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS_NAME;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
 
-    if (!RegisterClass(&wc))
+    // === APP ICON ===
+    wc.hIcon =
+        (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(IDI_VIDI_APP), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_SHARED);
+
+    wc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(IDI_VIDI_APP), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
+                                   GetSystemMetrics(SM_CYSMICON), LR_SHARED);
+
+    if (!RegisterClassExW(&wc)) // ← ganti dari RegisterClass
         return false;
-    g_hMainWnd = CreateWindowEx(0, CLASS_NAME, L"Vidi-Player", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-                                CW_USEDEFAULT, CW_USEDEFAULT, 800, 600, NULL, NULL, hInstance, this);
+
+    g_hMainWnd = CreateWindowExW( // ← sekalian pakai W biar konsisten
+        0, CLASS_NAME, L"Vidi-Player", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, CW_USEDEFAULT,
+        CW_USEDEFAULT, 800, 600, NULL, NULL, hInstance, this);
+
     if (!g_hMainWnd)
         return false;
-    m_hAccel = CreatePlayerAccelTable();
 
+    m_hAccel = CreatePlayerAccelTable();
     WTSRegisterSessionNotification(g_hMainWnd, NOTIFY_FOR_THIS_SESSION);
 
     ShowWindow(g_hMainWnd, nCmdShow);

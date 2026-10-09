@@ -506,6 +506,37 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
     }
 
         // ========================================================
+        // WM_APP_FS_REFRESH
+        //
+        // Kerja "berat" setelah transisi fullscreen selesai:
+        //   - rebuild subtitle DIB
+        //   - force frame refresh (kalau paused)
+        //
+        // Dipanggil via PostMessage dari Enter/ExitFullscreen,
+        // jadi tidak block GUI thread saat transisi.
+        // ========================================================
+    case WM_APP_FS_REFRESH: {
+        if (!self)
+            return 0;
+
+        bool isEntering = (wParam != 0);
+
+        // Cek state — kalau user spam F, hanya state terakhir yang di-refresh
+        if (isEntering != self->m_isFullscreen) {
+            return 0; // sudah berubah lagi, skip stale refresh
+        }
+
+        // Subtitle refresh (mahal) — hanya kalau app aktif & subs on
+        if (self->m_appActivate && !self->m_subsHidden) {
+            self->UpdateSubtitleDisplays(self->m_lastSubPosition, true);
+        }
+
+        // Force frame refresh — VMR-7 repaint frame terakhir di geometry baru
+        self->RecoverVideo();
+
+        return 0;
+    }
+        // ========================================================
         // WM_APP_MEDIA_READY
         // ========================================================
 
