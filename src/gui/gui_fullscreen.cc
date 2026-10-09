@@ -4,59 +4,6 @@
 
 namespace guiVidi {
 
-// ============================================================
-// HELPERS (internal linkage — hanya file ini)
-// ============================================================
-namespace {
-
-// Kumpulkan semua child control yang perlu hide/show saat toggle FS.
-constexpr int kFsControlCount = 13;
-
-// Batch hide/show N window dalam SATU DeferWindowPos round-trip.
-// Jauh lebih cepat dari loop ShowWindow() karena OS commit sekali.
-void BatchShowWindows(HWND* list, int count, bool show) {
-    if (count <= 0)
-        return;
-
-    HDWP hdwp = BeginDeferWindowPos(count);
-    if (!hdwp) {
-        for (int i = 0; i < count; ++i)
-            if (list[i])
-                ShowWindow(list[i], show ? SW_SHOW : SW_HIDE);
-        return;
-    }
-
-    for (int i = 0; i < count; ++i) {
-        if (!list[i])
-            continue;
-        hdwp = DeferWindowPos(hdwp, list[i], nullptr, 0, 0, 0, 0,
-                              SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
-                                  (show ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
-    }
-    if (hdwp)
-        EndDeferWindowPos(hdwp);
-}
-
-} // namespace
-
-// ============================================================
-// COLLECT FULLSCREEN CONTROLS
-// Isi `out` dengan daftar HWND kontrol yang perlu di-hide saat FS.
-// Satu sumber kebenaran, dipakai Enter & Exit.
-// ============================================================
-void VideoPlayerGUI::CollectFullscreenControls(HWND* out, int& count) const {
-    HWND list[kFsControlCount] = {
-        g_hProgress, g_hSkipBack,   g_hPlayBtn, g_hStopBtn, g_hSkipForward, g_hFullscreenBtn, g_hPlaylistBtn,
-        g_hLoopBtn,  g_hShuffleBtn, g_hVolIcon, g_hVolume,  g_hVolPercent,  g_hTimeLabel,
-    };
-    count = kFsControlCount;
-    for (int i = 0; i < count; ++i)
-        out[i] = list[i];
-}
-
-// ============================================================
-// ENTER FULLSCREEN
-// ============================================================
 void VideoPlayerGUI::EnterFullscreen() {
     if (m_isFullscreen)
         return;
@@ -69,167 +16,185 @@ void VideoPlayerGUI::EnterFullscreen() {
     const int monW = mi.rcMonitor.right - mi.rcMonitor.left;
     const int monH = mi.rcMonitor.bottom - mi.rcMonitor.top;
 
-    // 1) Freeze paint utama. JANGAN UpdateWindow / Invalidate —
-    //    biarkan DWM composite frame terakhir (no flash putih).
+    // 1) Fade to black dulu
+    m_transitionDark = true;
+    InvalidateRect(g_hMainWnd, nullptr, TRUE);
+    UpdateWindow(g_hMainWnd);
+
+    // 2) Freeze semua
     SetWindowRedraw(g_hMainWnd, FALSE);
-    if (g_hVideoArea)
+    if (g_hVideoArea) {
         SetWindowRedraw(g_hVideoArea, FALSE);
+        ShowWindow(g_hVideoArea, SW_HIDE);
+    }
 
     m_isFullscreen = true;
 
-    // 2) Hide semua kontrol pakai SATU batch DeferWindowPos
-    HWND ctrls[kFsControlCount] = {};
-    int nCtrls = 0;
-    CollectFullscreenControls(ctrls, nCtrls);
-    BatchShowWindows(ctrls, nCtrls, false);
+    // Hide controls
+    HWND hideCtrls[] = {g_hProgress,      g_hSkipBack,    g_hPlayBtn,  g_hStopBtn,    g_hSkipForward,
+                        g_hFullscreenBtn, g_hPlaylistBtn, g_hLoopBtn,  g_hShuffleBtn, g_hVolIcon,
+                        g_hVolume,        g_hVolPercent,  g_hTimeLabel};
+    for (HWND h : hideCtrls)
+        if (h)
+            ShowWindow(h, SW_HIDE);
 
-    // 3) Buat overlay DULU, supaya bisa langsung di-layout dalam frame yang sama
-    if (!m_hFsOverlay)
-        CreateFsOverlay();
+    // Style
+    DWORD style = GetWindowLong(g_hMainWnd, GWL_STYLE);
+    SetWindowLong(g_hMainWnd, GWL_STYLE, (style & ~WS_OVERLAPPEDWINDOW) | WS_POPUP);
+    DWORD exStyle = GetWindowLong(g_hMainWnd, GWL_EXSTYLE);
+    SetWindowLong(g_hMainWnd, GWL_EXSTYLE, exStyle | WS_EX_APPWINDOW);
 
-    // 4) Style change — satu commit.
-    LONG_PTR style = GetWindowLongPtrW(g_hMainWnd, GWL_STYLE);
-    LONG_PTR exStyle = GetWindowLongPtrW(g_hMainWnd, GWL_EXSTYLE);
-    SetWindowLongPtrW(g_hMainWnd, GWL_STYLE, (style & ~WS_OVERLAPPEDWINDOW) | WS_POPUP);
-    SetWindowLongPtrW(g_hMainWnd, GWL_EXSTYLE, exStyle | WS_EX_APPWINDOW);
     if (m_hMenuBar)
         SetMenu(g_hMainWnd, nullptr);
 
+    // Resize window
     SetWindowPos(g_hMainWnd, HWND_TOPMOST, mi.rcMonitor.left, mi.rcMonitor.top, monW, monH,
-                 SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOREDRAW);
+                 SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
 
-    // 5) Resize video area + overlay dalam SATU batch
-    {
-        HDWP hdwp = BeginDeferWindowPos(2);
-        if (g_hVideoArea)
-            hdwp = DeferWindowPos(hdwp, g_hVideoArea, HWND_BOTTOM, 0, 0, monW, monH,
-                                  SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOREDRAW);
-        if (m_hFsOverlay)
-            hdwp = DeferWindowPos(hdwp, m_hFsOverlay, HWND_TOPMOST, 0, 0, 0, 0,
-                                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOREDRAW);
-        if (hdwp)
-            EndDeferWindowPos(hdwp);
+    if (g_hVideoArea)
+        SetWindowPos(g_hVideoArea, HWND_BOTTOM, 0, 0, monW, monH, SWP_NOACTIVATE);
+
+    // Create & show overlay
+    CreateFsOverlay();
+    LayoutFsOverlay(monW, monH); // ini yang show overlay
+
+    // Update subtitle
+    for (int i = 0; i < MAX_SUB_OVERLAYS; ++i) {
+        if (m_hSubOverlay[i])
+            SetWindowPos(m_hSubOverlay[i], HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
-    LayoutFsOverlay(monW, monH);
 
-    // 6) Video renderer resize ke area baru
     m_player.UpdateVideoSize();
 
-    // 7) Reset cache subtitle geometry — refresh-nya nanti via PostMessage
     m_lastSubFrameW = m_lastSubFrameH = 0;
     m_lastSubOverlayX = m_lastSubOverlayY = 0;
     m_lastSubContentHash = 0;
     m_lastSubRenderTick = 0;
 
-    // 8) Unfreeze SEKALI. Invalidate async (TANPA RDW_UPDATENOW).
+    // 3) Unfreeze
     SetWindowRedraw(g_hMainWnd, TRUE);
-    if (g_hVideoArea)
+    if (g_hVideoArea) {
         SetWindowRedraw(g_hVideoArea, TRUE);
+        ShowWindow(g_hVideoArea, SW_SHOW);
+    }
 
-    InvalidateRect(g_hMainWnd, nullptr, FALSE);
-    if (g_hVideoArea)
-        InvalidateRect(g_hVideoArea, nullptr, TRUE);
+    m_transitionDark = false;
 
-    // 9) Kerja berat (subtitle rebuild + force frame refresh) di-defer.
-    //    PostMessage antri di message queue → transisi terasa instan.
-    PostMessage(g_hMainWnd, WM_APP_FS_REFRESH, TRUE, 0);
+    // 4) Satu repaint final
+    RedrawWindow(g_hMainWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
 
-    // 10) Cursor + overlay auto-hide
+    // 5) Subtitle + video
+    UpdateSubtitleDisplays(m_lastSubPosition, true);
+    RecoverVideo();
     PokeOSControls();
 }
 
-// ============================================================
-// EXIT FULLSCREEN
-// ============================================================
 void VideoPlayerGUI::ExitFullscreen() {
+    OutputDebugStringW(L"[VIDI] === ExitFullscreen START ===\n");
+
     if (!m_isFullscreen)
         return;
 
     m_isFullscreen = false;
 
-    // 1) Freeze — jangan paint dulu
-    SetWindowRedraw(g_hMainWnd, FALSE);
-    if (g_hVideoArea)
-        SetWindowRedraw(g_hVideoArea, FALSE);
+    // ========================================================
+    // Destroy overlay & hide it.
+    // ========================================================
 
-    // 2) Sembunyikan overlay & subtitle (batch)
-    if (m_hFsOverlay)
-        ShowWindow(m_hFsOverlay, SW_HIDE);
+    DestroyFsOverlay();
 
-    HWND subOverlays[MAX_SUB_OVERLAYS] = {};
-    for (int i = 0; i < MAX_SUB_OVERLAYS; ++i)
-        subOverlays[i] = m_hSubOverlay[i];
-    BatchShowWindows(subOverlays, MAX_SUB_OVERLAYS, false);
+    // ========================================================
+    // Kill auto-hide timer, restore cursor.
+    // ========================================================
 
-    // 3) Kill auto-hide timer + restore cursor
     KillTimer(g_hMainWnd, ID_TIMER_OSI_HIDE);
+
     if (m_cursorHidden) {
         ShowCursor(TRUE);
         m_cursorHidden = false;
     }
 
-    // 4) Restore style — satu commit
-    LONG_PTR style = GetWindowLongPtrW(g_hMainWnd, GWL_STYLE);
-    LONG_PTR exStyle = GetWindowLongPtrW(g_hMainWnd, GWL_EXSTYLE);
-    SetWindowLongPtrW(g_hMainWnd, GWL_STYLE, (style & ~WS_POPUP) | WS_OVERLAPPEDWINDOW);
-    SetWindowLongPtrW(g_hMainWnd, GWL_EXSTYLE, exStyle & ~WS_EX_APPWINDOW);
+    // ========================================================
+    // Restore window style → WS_OVERLAPPEDWINDOW.
+    // ========================================================
+
+    DWORD style = GetWindowLong(g_hMainWnd, GWL_STYLE);
+    SetWindowLong(g_hMainWnd, GWL_STYLE, (style & ~WS_POPUP) | WS_OVERLAPPEDWINDOW);
+
+    DWORD exStyle = GetWindowLong(g_hMainWnd, GWL_EXSTYLE);
+    SetWindowLong(g_hMainWnd, GWL_EXSTYLE, exStyle & ~WS_EX_APPWINDOW);
+
     if (m_hMenuBar)
         SetMenu(g_hMainWnd, m_hMenuBar);
 
-    // 5) Restore placement
     if (!SetWindowPlacement(g_hMainWnd, &m_prevPlacement)) {
         HMONITOR mon = MonitorFromWindow(g_hMainWnd, MONITOR_DEFAULTTONEAREST);
         MONITORINFO mi = {sizeof(mi)};
         if (GetMonitorInfo(mon, &mi)) {
             RECT r = mi.rcWork;
             SetWindowPos(g_hMainWnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
-                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOREDRAW);
+                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
         }
     }
+
     SetWindowPos(g_hMainWnd, HWND_NOTOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOREDRAW);
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
 
-    // 6) Re-apply theme (kadang trackbar lupa theme setelah style change)
-    if (g_hProgress)
+    // ========================================================
+    // Re-apply theme & layout.
+    // ========================================================
+
+    if (g_hProgress) {
         SetWindowTheme(g_hProgress, L" ", L" ");
-    if (g_hVolume)
+    }
+    if (g_hVolume) {
         SetWindowTheme(g_hVolume, L" ", L" ");
+    }
 
-    // 7) Layout + show controls (batch)
     RECT rc = {};
     GetClientRect(g_hMainWnd, &rc);
     LayoutControls(rc.right, rc.bottom);
 
-    HWND ctrls[kFsControlCount] = {};
-    int nCtrls = 0;
-    CollectFullscreenControls(ctrls, nCtrls);
-    BatchShowWindows(ctrls, nCtrls, true);
+    // ========================================================
+    // Show all original controls.
+    // ========================================================
 
-    // 8) Reset cache subtitle geometry
-    m_lastSubFrameW = m_lastSubFrameH = 0;
-    m_lastSubOverlayX = m_lastSubOverlayY = 0;
-    m_lastSubContentHash = 0;
-    m_lastSubRenderTick = 0;
-    m_lastVideoClickTick = 0;
+    HWND showCtrls[] = {g_hProgress,      g_hSkipBack,    g_hPlayBtn,  g_hStopBtn,    g_hSkipForward,
+                        g_hFullscreenBtn, g_hPlaylistBtn, g_hLoopBtn,  g_hShuffleBtn, g_hVolIcon,
+                        g_hVolume,        g_hVolPercent,  g_hTimeLabel};
+    for (HWND h : showCtrls)
+        if (h)
+            ShowWindow(h, SW_SHOW);
 
-    // 9) Video renderer resize
+    RedrawWindow(g_hMainWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+
     m_player.UpdateVideoSize();
 
-    // 10) Unfreeze + async invalidate
-    SetWindowRedraw(g_hMainWnd, TRUE);
-    if (g_hVideoArea)
-        SetWindowRedraw(g_hVideoArea, TRUE);
+    // ========================================================
+    // FORCE subtitle geometry refresh
+    // ========================================================
 
-    InvalidateRect(g_hMainWnd, nullptr, FALSE);
+    m_lastSubFrameW = 0;
+    m_lastSubFrameH = 0;
+    m_lastSubOverlayX = 0;
+    m_lastSubOverlayY = 0;
+    m_lastSubContentHash = 0;
+    m_lastSubRenderTick = 0;
 
-    // 11) Defer subtitle + video refresh
-    PostMessage(g_hMainWnd, WM_APP_FS_REFRESH, FALSE, 0);
+    if (!m_subsHidden) {
+        UpdateSubtitleDisplays(m_lastSubPosition, true);
+    }
+
+    RecoverVideo();
+    m_lastVideoClickTick = 0;
+
+    OutputDebugStringW(L"[VIDI] === ExitFullscreen END ===\n");
 }
-
-// ============================================================
+// ==========================================
 // FIT WINDOW TO VIDEO
-// ============================================================
+// ==========================================
 void VideoPlayerGUI::FitWindowToVideo() {
+    // fungsi untuk kondisi ukuran window pada video player sesuai dengan ukuran video player
     if (m_isFullscreen || !g_hMainWnd)
         return;
 
@@ -264,10 +229,11 @@ void VideoPlayerGUI::FitWindowToVideo() {
     SetWindowPos(g_hMainWnd, nullptr, newX, newY, cw + extraW, ch + extraH, SWP_NOZORDER);
 }
 
-// ============================================================
-// SHOW/HIDE OS CONTROLS
-// ============================================================
+// ==========================================
+// SHOW/HIDE OS CONTROLS (fullscreen overlay)
+// ==========================================
 void VideoPlayerGUI::ShowOSControls(bool visible) {
+    // In overlay mode, we show/hide the overlay instead of individual controls
     ShowFsOverlay(visible);
 }
 
@@ -280,6 +246,7 @@ void VideoPlayerGUI::PokeOSControls() {
         m_cursorHidden = false;
     }
 
+    // Show overlay and layout it properly
     if (!m_hFsOverlay) {
         MONITORINFO mi = {sizeof(mi)};
         HMONITOR mon = MonitorFromWindow(g_hMainWnd, MONITOR_DEFAULTTONEAREST);
@@ -297,13 +264,13 @@ void VideoPlayerGUI::PokeOSControls() {
 }
 
 bool VideoPlayerGUI::CursorOverControls() {
+    // In overlay mode, check if cursor is over the overlay
     return CursorOverFsOverlay();
 }
 
-// ============================================================
-// RECOVER VIDEO
-// ============================================================
 void VideoPlayerGUI::RecoverVideo() {
+    // fungsi dimana berlogic pulihkan tampilan setelah session
+    // seperti switch/minimize maupun ganti resolusi
     if (m_isPlaying) {
         m_player.Play();
     } else if (m_cachedDuration > 0.0) {
@@ -311,9 +278,10 @@ void VideoPlayerGUI::RecoverVideo() {
     }
 }
 
-// ============================================================
-// FULLSCREEN OVERLAY
-// ============================================================
+// ==========================================
+// FULLSCREEN OVERLAY — VLC-style bottom bar
+// ==========================================
+
 static const wchar_t FS_OVERLAY_CLASS[] = L"VidiFsOverlay";
 
 void VideoPlayerGUI::CreateFsOverlay() {
@@ -363,16 +331,17 @@ void VideoPlayerGUI::LayoutFsOverlay(int screenW, int screenH) {
 
     double dpi = GetDpiScale(m_hFsOverlay);
 
-    const int PROGRESS_ROW_H = (int)(FS_PROGRESS_ROW_H * dpi);
-    const int CONTROLS_ROW_H = (int)(FS_CONTROLS_ROW_H * dpi);
+    const int PROGRESS_ROW_H = (int)(FS_PROGRESS_ROW_H * dpi); // 8
+    const int CONTROLS_ROW_H = (int)(FS_CONTROLS_ROW_H * dpi); // 36
     const int BAR_H = PROGRESS_ROW_H + CONTROLS_ROW_H;
 
+    // Lebar: 55% layar, minimum 360 dpi
     int barW = (int)(screenW * 0.55);
     if (barW < (int)(360 * dpi))
         barW = (int)(360 * dpi);
 
     int barX = (screenW - barW) / 2;
-    int barY = screenH - BAR_H;
+    int barY = screenH - BAR_H; // flush ke dasar layar
 
     SetWindowPos(m_hFsOverlay, HWND_TOPMOST, barX, barY, barW, BAR_H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
@@ -392,9 +361,9 @@ bool VideoPlayerGUI::CursorOverFsOverlay() {
     return PtInRect(&rc, pt);
 }
 
-// ============================================================
-// OVERLAY WINDOW PROC
-// ============================================================
+// ==========================================
+// OVERLAY WINDOW PROC — custom paint + mouse
+// ==========================================
 LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     VideoPlayerGUI* self = nullptr;
 
@@ -426,10 +395,12 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
 
         double dpi = GetDpiScale(hwnd);
 
+        // Background
         HBRUSH hBg = CreateSolidBrush(guiVidi::COLOR_MODERN_BG);
         FillRect(dcMem, &rcWnd, hBg);
         DeleteObject(hBg);
 
+        // Layout: 2 rows — progress bar (top), controls (bottom)
         const int PROGRESS_H = (int)(5 * dpi);
         const int EDGE = (int)(12 * dpi);
         const int BTN_SIZE = (int)(26 * dpi);
@@ -437,7 +408,9 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
         const int PROGRESS_ROW_H = PROGRESS_H + (int)(2 * dpi);
         const int CONTROLS_ROW_H = wndH - PROGRESS_ROW_H;
 
-        // ---- ROW 1: Progress bar ----
+        // ========================================================
+        // ROW 1: Progress bar
+        // ========================================================
         int pos = (int)SendMessage(self->g_hProgress, TBM_GETPOS, 0, 0);
         double ratio = (self->m_progressRangeMax > 0) ? (double)pos / self->m_progressRangeMax : 0.0;
         if (ratio < 0)
@@ -445,8 +418,8 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
         if (ratio > 1)
             ratio = 1;
 
-        int TOP_PAD = (int)(8 * dpi);
-        int progCy = TOP_PAD + PROGRESS_H / 2;
+        int TOP_PAD = (int)(8 * dpi);          // ← turunkan line sedikit
+        int progCy = TOP_PAD + PROGRESS_H / 2; // center track = 8 + 2.5 = 10.5 dpi
         RECT pTrack = {EDGE, progCy - PROGRESS_H / 2, wndW - EDGE, progCy + PROGRESS_H / 2};
 
         HPEN hNullPen = CreatePen(PS_NULL, 0, 0);
@@ -465,6 +438,7 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
             DeleteObject(hPFill);
         }
 
+        // Thumb: bulat, oranye
         int thumbSize = (int)(12 * dpi);
         int thumbR = thumbSize / 2;
         int thumbCx = pFillX;
@@ -484,47 +458,60 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
         DeleteObject(hPThumb);
         DeleteObject(hPThumbBorder);
 
+        // Cleanup track GDI
         SelectObject(dcMem, hOldBrP);
         SelectObject(dcMem, hOldPenP);
         DeleteObject(hPTrack);
         DeleteObject(hNullPen);
 
-        // ---- ROW 2: Controls ----
+        // ========================================================
+        // ROW 2: Controls
+        // ========================================================
         int ctrlY = PROGRESS_ROW_H;
+
         int volIconSize = (int)(16 * dpi);
         int volW = (int)(70 * dpi);
         int volGap = (int)(3 * dpi);
         int volTotalW = volIconSize + volGap + volW;
 
+        // ========================================================
+        // Measure time label (fallback kalau kosong)
+        // ========================================================
         wchar_t timeBuf[64] = {};
         if (self->g_hTimeLabel)
             GetWindowTextW(self->g_hTimeLabel, timeBuf, 64);
+
+        // FIX: fallback placeholder supaya layout stabil & teks selalu kelihatan
         if (timeBuf[0] == L'\0')
             wcscpy_s(timeBuf, L"--:-- / --:--");
 
         HFONT hOldFont = (HFONT)SelectObject(dcMem, self->m_hTimeFont);
         SetBkMode(dcMem, TRANSPARENT);
-        SetTextColor(dcMem, guiVidi::COLOR_MODERN_TEXT);
+        SetTextColor(dcMem, guiVidi::COLOR_MODERN_TEXT); // gelap — terlihat di bg putih
 
         SIZE timeSz = {0};
         GetTextExtentPoint32W(dcMem, timeBuf, (int)wcslen(timeBuf), &timeSz);
         int timeW = timeSz.cx + (int)(6 * dpi);
         if (timeW < (int)(80 * dpi))
-            timeW = (int)(80 * dpi);
+            timeW = (int)(80 * dpi); // minimum width biar layout tidak goyang
 
+        // ========================================================
+        // Group: play + volume + time + fullscreen
+        // ========================================================
         int groupW = BTN_SIZE + SP + volTotalW + SP + timeW + SP + BTN_SIZE;
         int groupX = (wndW - groupW) / 2;
 
-        // Play/Pause
+        // ---------- Play / Pause ----------
         int playBtnX = groupX;
         int playBtnY = ctrlY + (CONTROLS_ROW_H - BTN_SIZE) / 2;
+
         HICON hPlayIcon = self->m_isPlaying ? self->m_hIconPause : self->m_hIconPlay;
         if (hPlayIcon) {
             DrawIconEx(dcMem, playBtnX + (BTN_SIZE - 22) / 2, playBtnY + (BTN_SIZE - 22) / 2, hPlayIcon, 22, 22, 0,
                        nullptr, DI_NORMAL);
         }
 
-        // Volume
+        // ---------- Volume ----------
         int volStartX = playBtnX + BTN_SIZE + SP;
         int volBarY = ctrlY + (CONTROLS_ROW_H - (int)(5 * dpi)) / 2;
 
@@ -561,6 +548,7 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
             DeleteObject(hVolFill);
         }
 
+        // FIX: volume thumb — warna gelap, terlihat di atas bg putih
         int volThumbR = 5;
         int volThumbCx = volFillX;
         if (volThumbCx - volThumbR < volTrack.left)
@@ -584,22 +572,25 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
         DeleteObject(hVolTrack);
         DeleteObject(hNullPen2);
 
-        // Time label
+        // ---------- Time label ----------
         int timeX = volStartX + volTotalW + SP;
         RECT rcTime = {timeX, ctrlY, timeX + timeW, ctrlY + CONTROLS_ROW_H};
         DrawTextW(dcMem, timeBuf, -1, &rcTime, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
         SelectObject(dcMem, hOldFont);
 
-        // Fullscreen button
+        // ---------- Fullscreen button ----------
         int fsBtnX = timeX + timeW + SP;
         int fsBtnY = ctrlY + (CONTROLS_ROW_H - BTN_SIZE) / 2;
+
         if (self->m_hIconFullscreen) {
             DrawIconEx(dcMem, fsBtnX + (BTN_SIZE - 22) / 2, fsBtnY + (BTN_SIZE - 22) / 2, self->m_hIconFullscreen, 22,
                        22, 0, nullptr, DI_NORMAL);
         }
 
+        // ========================================================
         // Blit
+        // ========================================================
         BitBlt(hdc, 0, 0, wndW, wndH, dcMem, 0, 0, SRCCOPY);
 
         SelectObject(dcMem, hOldBmp);
@@ -608,15 +599,18 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
         EndPaint(hwnd, &ps);
         return 0;
     }
-
     case WM_ERASEBKGND:
         return 1;
 
     case WM_MOUSEMOVE:
-        self->PokeOSControls();
+        if (self)
+            self->PokeOSControls();
         return 0;
 
     case WM_LBUTTONDOWN: {
+        if (!self)
+            return 0;
+
         int x = (short)LOWORD(lParam);
         int y = (short)HIWORD(lParam);
 
@@ -635,7 +629,7 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
 
         POINT pt = {x, y};
 
-        // Progress bar click
+        // --- Click on progress bar (top row)? ---
         int progCy = PROGRESS_ROW_H / 2;
         RECT rcProg = {EDGE, progCy - (int)(8 * dpi), wndW - EDGE, progCy + (int)(8 * dpi)};
         if (PtInRect(&rcProg, pt) && self->m_cachedDuration > 0.0) {
@@ -657,9 +651,10 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
             return 0;
         }
 
-        // Controls row click
+        // --- Click on controls row ---
         int ctrlY = PROGRESS_ROW_H;
 
+        // Calculate group position (same as paint)
         int volIconSize = (int)(16 * dpi);
         int volW = (int)(70 * dpi);
         int volGap = (int)(3 * dpi);
@@ -679,7 +674,7 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
         int groupW = BTN_SIZE + SP + volTotalW + SP + timeWHit + SP + BTN_SIZE;
         int groupX = (wndW - groupW) / 2;
 
-        // Play/Pause click
+        // --- Play/Pause ---
         int playBtnXHit = groupX;
         int playBtnYHit = ctrlY + (CONTROLS_ROW_H - BTN_SIZE) / 2;
         RECT rcPlay = {playBtnXHit, playBtnYHit, playBtnXHit + BTN_SIZE, playBtnYHit + BTN_SIZE};
@@ -695,7 +690,7 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
             return 0;
         }
 
-        // Volume click
+        // --- Volume ---
         int volStartXHit = playBtnXHit + BTN_SIZE + SP;
         int volTrackXHit = volStartXHit + volIconSize + volGap;
         int volBarYHit = ctrlY + (CONTROLS_ROW_H - (int)(5 * dpi)) / 2;
@@ -714,7 +709,7 @@ LRESULT CALLBACK VideoPlayerGUI::FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM w
             return 0;
         }
 
-        // Fullscreen click
+        // --- Fullscreen ---
         int timeXHit = volStartXHit + volTotalW + SP;
         int fsBtnXHit = timeXHit + timeWHit + SP;
         int fsBtnYHit = ctrlY + (CONTROLS_ROW_H - BTN_SIZE) / 2;

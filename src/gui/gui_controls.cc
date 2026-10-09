@@ -32,7 +32,6 @@ void VideoPlayerGUI::OnMediaReady() {
     m_hasPendingSeek = false;
     m_lastDurCheckTick = 0;
     FitWindowToVideo();
-
     m_player.ShowVideoWindow();
     m_player.UpdateVideoSize();
     if (g_hVideoArea) {
