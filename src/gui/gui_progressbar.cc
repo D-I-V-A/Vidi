@@ -17,6 +17,19 @@ LRESULT CALLBACK VideoPlayerGUI::ProgressSubclassProc(HWND hwnd, UINT uMsg, WPAR
     case WM_PAINT: {
         if (!self)
             break;
+
+        static bool s_lastFs = false;
+        if (self->m_isFullscreen != s_lastFs) {
+            s_lastFs = self->m_isFullscreen;
+            wchar_t buf[128];
+            swprintf_s(buf,
+                       L"[VIDI] ProgressSubclass WM_PAINT: "
+                       L"fullscreen changed to %d, "
+                       L"calling DrawVlcSeekbar directly\n",
+                       self->m_isFullscreen);
+            OutputDebugStringW(buf);
+        }
+
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
 
@@ -31,7 +44,7 @@ LRESULT CALLBACK VideoPlayerGUI::ProgressSubclassProc(HWND hwnd, UINT uMsg, WPAR
         FillRect(dcMem, &rc, hBgBrush);
         DeleteObject(hBgBrush);
 
-        SendMessage(hwnd, WM_PRINTCLIENT, (WPARAM)dcMem, PRF_CLIENT);
+        self->DrawVlcSeekbar(dcMem);
 
         BitBlt(hdc, 0, 0, rc.right, rc.bottom, dcMem, 0, 0, SRCCOPY);
 
@@ -131,11 +144,18 @@ void VideoPlayerGUI::DrawVlcSeekbar(HDC hdc) {
     RECT rc;
     GetClientRect(g_hProgress, &rc);
 
+    // GUARD: Cegah gambar saat window belum siap
+    if (rc.right <= 0 || rc.bottom <= 0)
+        return;
+
     int pos = (int)SendMessage(g_hProgress, TBM_GETPOS, 0, 0);
-    const int BAR_H = 5;
-    const int THUMB_SIZE = m_seekHot ? 14 : 12;
+    const int BAR_H = 8;
+    const int THUMB_SIZE = m_seekHot ? 24 : 20;
     int cy = (rc.top + rc.bottom) / 2;
-    RECT track = {rc.left + 2, cy - BAR_H / 2, rc.right - 3, cy + BAR_H / 2};
+
+    // PERBAIKAN: Hitung setengah thumb untuk padding track
+    int halfThumb = THUMB_SIZE / 2;
+    RECT track = {rc.left + halfThumb, cy - BAR_H / 2, rc.right - halfThumb, cy + BAR_H / 2};
     int w = track.right - track.left;
 
     HPEN hNullPen = CreatePen(PS_NULL, 0, 0);
@@ -151,7 +171,9 @@ void VideoPlayerGUI::DrawVlcSeekbar(HDC hdc) {
     if (ratio > 1)
         ratio = 1;
 
+    // fx sekarang dijamin berada di dalam batas track yang sudah dipadding
     int fx = track.left + (int)(ratio * w);
+
     if (fx > track.left + BAR_H) {
         HBRUSH hFill = CreateSolidBrush(COLOR_SEEK_FILL);
         HGDIOBJ hPrev = SelectObject(hdc, hFill);
@@ -160,7 +182,7 @@ void VideoPlayerGUI::DrawVlcSeekbar(HDC hdc) {
         DeleteObject(hFill);
     }
 
-    RECT thumb = {fx - THUMB_SIZE / 2, cy - THUMB_SIZE / 2, fx + THUMB_SIZE / 2, cy + THUMB_SIZE / 2};
+    RECT thumb = {fx - halfThumb, cy - halfThumb, fx + halfThumb, cy + halfThumb};
     HBRUSH hThumb = CreateSolidBrush(RGB(255, 255, 255));
     HGDIOBJ hPrevThumb = SelectObject(hdc, hThumb);
     FillRect(hdc, &thumb, hThumb);
@@ -286,7 +308,8 @@ void VideoPlayerGUI::SetProgressPos(int pos) {
         return;
 
     SendMessage(g_hProgress, TBM_SETPOS, TRUE, pos);
-    InvalidateRect(g_hProgress, nullptr, FALSE);
+    if (!m_isFullscreen)
+        InvalidateRect(g_hProgress, nullptr, FALSE);
 }
 
 // ==========================================

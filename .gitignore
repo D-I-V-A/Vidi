@@ -27,3 +27,6 @@ a.out
 *.app
 
 build
+
+# Test environment config
+tests/env.dev

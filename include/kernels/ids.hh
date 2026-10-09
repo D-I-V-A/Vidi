@@ -4,6 +4,7 @@
 
 #include <windows.h>
 
+#define IDI_VIDI_APP 101
 // ==========================================
 // CONTROL IDs (UI Elements)
 // ==========================================
@@ -26,7 +27,8 @@
 #define IDC_BTN_SHUFFLE 1016
 #define IDC_VOL_ICON 1017
 #define IDC_VOL_PERCENT 1018
-
+#define IDC_PLAYLIST_BOX 1100
+#define IDI_PLAYLIST_WND 1101
 // Alias untuk kompatibilitas kode lama (opsional)
 #define IDC_BTN_PLAY IDC_PLAY
 #define IDC_BTN_PAUSE IDC_PAUSE
@@ -165,7 +167,12 @@
 // ==========================================
 #define ID_TIMER_UPDATE 3001
 #define ID_TIMER_OSI_HIDE 3002
+#define ID_TIMER_SUBTITLE_REFRESH 3003
 #define TIMER_INTERVAL_MS 33
+
+#define IDC_FS_OVERLAY 6001
+#define ID_FS_BTN_PLAY 6002
+#define ID_FS_BTN_FULLSCREEN 6003
 
 #define WM_APP_MEDIA_READY (WM_APP + 1)
 #define WM_APP_PLAYBACK_ENDED (WM_APP + 2)
@@ -174,16 +181,22 @@
 #define WM_APP_GRAPH_EVENT (WM_APP + 10)
 #define WM_APP_FS_DEACTIVATE (WM_APP + 20)
 #define WM_APP_FS_ACTIVATE (WM_APP + 21)
-#define WM_APP_FS_DEACTIVATE (WM_APP + 20)
-#define WM_APP_FS_ACTIVATE (WM_APP + 21)
+#define WM_APP_FS_REFRESH (WM_APP + 22)
 // ==========================================
 // ACCELERATOR TABLE
 // ==========================================
 inline HACCEL CreatePlayerAccelTable() {
     ACCEL accels[] = {
-        {FVIRTKEY, VK_SPACE, IDM_PLAY}, {FVIRTKEY, 'S', IDM_STOP},           {FVIRTKEY, VK_LEFT, IDM_PREVIOUS},
-        {FVIRTKEY, VK_RIGHT, IDM_NEXT}, {FVIRTKEY, VK_UP, IDM_INCREASE_VOL}, {FVIRTKEY, VK_DOWN, IDM_DECREASE_VOL},
-        {FVIRTKEY, 'M', IDM_MUTE},      {FVIRTKEY, 'F', IDM_FULLSCREEN},     {FVIRTKEY | FCONTROL, 'O', IDM_OPEN_FILE},
+        {FVIRTKEY, VK_SPACE, IDM_PLAY},
+        {FVIRTKEY, 'S', IDM_STOP},
+        {FVIRTKEY, VK_LEFT, IDM_PREVIOUS},
+        {FVIRTKEY, VK_RIGHT, IDM_NEXT},
+        {FVIRTKEY, VK_UP, IDM_INCREASE_VOL},
+        {FVIRTKEY, VK_DOWN, IDM_DECREASE_VOL},
+        {FVIRTKEY, 'M', IDM_MUTE},
+        {FVIRTKEY, 'F', IDM_FULLSCREEN},
+        {FVIRTKEY | FCONTROL, 'O', IDM_OPEN_FILE},
+        {FVIRTKEY | FCONTROL | FSHIFT, 'O', IDM_OPEN_FOLDER},
     };
     return CreateAcceleratorTable(accels, sizeof(accels) / sizeof(ACCEL));
 }

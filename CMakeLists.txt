@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 project(Vidi VERSION 0.1)
 
-set(PROJECT_VERSION_SUFFIX "alpha")
+set(PROJECT_VERSION_SUFFIX "beta")
 set(PROJECT_VERSION_FULL "${PROJECT_VERSION}-${PROJECT_VERSION_SUFFIX}")
 message(STATUS "Building ${PROJECT_NAME} v${PROJECT_VERSION_FULL}")
 
@@ -23,7 +23,8 @@ set(SOURCES
     src/kernels/directShowPlayer.cc
     src/kernels/subtitleReader.cc
     src/kernels/assRenderer.cc
-    src/app.rc
+    src/resources/vidi.rc
+    src/resources/vidi.manifest
 )
 
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES})
@@ -114,5 +115,11 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Vidi Video & Audio Player")
 
 set(CPACK_GENERATOR "WIX")
 set(CPACK_WIX_UPGRADE_GUID "A1B2C3D4-E5F6-7890-ABCD-EF1234567890")
+
+# ==============================================================================
+# UNIT TESTS
+# ==============================================================================
+enable_testing()
+add_subdirectory(tests)
 
 include(CPack)

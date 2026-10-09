@@ -2,7 +2,10 @@
 #include <cmath>
 
 namespace guiVidi {
-
+struct BtnInfo {
+    HWND h;
+    bool valid;
+};
 // ==========================================
 // LAYOUT CONTROLS
 // ==========================================
@@ -19,8 +22,8 @@ void VideoPlayerGUI::LayoutControls(int width, int height) {
 
     double dpi = GetDpiScale(g_hMainWnd);
 
-    const int EDGE = (int)(8 * dpi);
-    const int PROGRESS_H = (int)(18 * dpi);
+    const int EDGE = (int)(12 * dpi);
+    const int PROGRESS_H = (int)(30 * dpi);
     const int BTN_SIZE = (int)(36 * dpi);
     const int BTN_SPACING = (int)(4 * dpi);
     const int CTRL_H = (int)(24 * dpi);
@@ -38,14 +41,11 @@ void VideoPlayerGUI::LayoutControls(int width, int height) {
     int videoHeight = height - BOTTOM_BAR_H;
     if (videoHeight < 100)
         videoHeight = 100;
-
+    int playlistW = m_playlistVisible ? (int)(220 * dpi) : 0;
+    int mainW = width - playlistW;
     int progressY = videoHeight + PAD_TOP;
     int btnRowY = progressY + PROGRESS_H + GAP_BAR_BTN;
 
-    struct BtnInfo {
-        HWND h;
-        bool valid;
-    };
     BtnInfo allBtns[] = {{g_hSkipBack, m_hIconSkipBack != nullptr},
                          {g_hPlayBtn, m_hIconPlay != nullptr},
                          {g_hStopBtn, m_hIconStop != nullptr},
@@ -114,12 +114,17 @@ void VideoPlayerGUI::LayoutControls(int width, int height) {
     int timeY = volY;
 
     if (g_hVideoArea) {
-        SetWindowPos(g_hVideoArea, HWND_BOTTOM, 0, 0, width, videoHeight, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        SetWindowPos(g_hVideoArea, HWND_BOTTOM, 0, 0, mainW, videoHeight, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
 
     if (g_hProgress) {
-        SetWindowPos(g_hProgress, HWND_TOP, EDGE, progressY, width - EDGE * 2, PROGRESS_H,
+        SetWindowPos(g_hProgress, HWND_TOP, EDGE, progressY, mainW - EDGE * 2, PROGRESS_H,
                      SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+
+    // Playlist box di sisi kanan
+    if (g_hPlaylistBox && m_playlistVisible) {
+        SetWindowPos(g_hPlaylistBox, HWND_TOP, mainW, 0, playlistW, videoHeight, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
 
     int bx = leftMargin;
@@ -156,56 +161,82 @@ void VideoPlayerGUI::LayoutControls(int width, int height) {
 // LAYOUT FULLSCREEN
 // ==========================================
 void VideoPlayerGUI::LayoutFullscreen(int width, int height) {
-    wchar_t dbg[256];
-    swprintf_s(dbg, L"[VIDI] LayoutFullscreen called with %dx%d\n", width, height);
-    OutputDebugStringW(dbg);
     double dpi = GetDpiScale(g_hMainWnd);
-    const int EDGE = (int)(12 * dpi);
+    const int EDGE = (int)(16 * dpi);
     const int BTN_SIZE = (int)(36 * dpi);
-    const int SP = (int)(4 * dpi);
-    const int CTRL_H = (int)(24 * dpi);
-    const int BOTTOM_PAD = (int)(16 * dpi);
+    const int SP = (int)(10 * dpi);
+    const int CTRL_H = (int)(28 * dpi);
+    const int BOTTOM_PAD = (int)(12 * dpi);
     const int PROGRESS_GAP = (int)(22 * dpi);
-    const int PROGRESS_H = (int)(18 * dpi);
-
-    int progressY = height - PROGRESS_H - BOTTOM_PAD;
-    int btnRowY = progressY - PROGRESS_GAP - BTN_SIZE;
+    const int PROGRESS_H = (int)(30 * dpi);
 
     const int VOL_ICON_W = (int)(20 * dpi);
     const int VOL_W = (int)(96 * dpi);
     const int VOL_PERC_W = (int)(40 * dpi);
-    const int VOL_GAP = (int)(4 * dpi);
+    const int VOL_GAP = (int)(6 * dpi);
 
-    int volTotalW = VOL_ICON_W + VOL_GAP + VOL_W + VOL_GAP + VOL_PERC_W;
-    int volX = width - EDGE - volTotalW;
-    int volY = btnRowY + (BTN_SIZE - CTRL_H) / 2;
+    // Y position
+    int progressY = height - PROGRESS_H - BOTTOM_PAD;
+    int btnRowY = progressY - PROGRESS_GAP - BTN_SIZE;
 
+    // Video area fullscreen
     if (g_hVideoArea)
         SetWindowPos(g_hVideoArea, HWND_BOTTOM, 0, 0, width, height, SWP_SHOWWINDOW);
 
+    // ---- Progress bar ----
     if (g_hProgress)
-        SetWindowPos(g_hProgress, HWND_TOP, EDGE, progressY, width - EDGE * 2, PROGRESS_H, SWP_SHOWWINDOW);
+        MoveWindow(g_hProgress, EDGE, progressY, width - (2 * EDGE), PROGRESS_H, TRUE);
 
-    HWND btns[8] = {g_hPlayBtn,       g_hSkipBack,    g_hStopBtn, g_hSkipForward,
-                    g_hFullscreenBtn, g_hPlaylistBtn, g_hLoopBtn, g_hShuffleBtn};
-    int stripW = BTN_SIZE * 8 + SP * 7;
+    // ---- Button strip (pakai lebar aktual, bukan 8 * BTN_SIZE) ----
+    BtnInfo btns[8] = {
+        {g_hPlayBtn, m_hIconPlay != nullptr},
+        {g_hSkipBack, m_hIconSkipBack != nullptr},
+        {g_hStopBtn, m_hIconStop != nullptr},
+        {g_hSkipForward, m_hIconSkipForward != nullptr},
+        {g_hFullscreenBtn, m_hIconFullscreen != nullptr},
+        {g_hPlaylistBtn, m_hIconPlaylist != nullptr},
+        {g_hLoopBtn, m_hIconLoop != nullptr},
+        {g_hShuffleBtn, m_hIconShuffle != nullptr},
+    };
+
+    // Hitung lebar strip sebenarnya (hanya tombol yang valid)
+    int visibleCount = 0;
+    for (auto& b : btns)
+        if (b.h && b.valid)
+            visibleCount++;
+
+    int stripW = visibleCount * BTN_SIZE + (visibleCount > 0 ? (visibleCount - 1) * SP : 0);
     int bx = (width - stripW) / 2;
-    for (HWND h : btns) {
-        if (h)
-            SetWindowPos(h, HWND_TOP, bx, btnRowY, BTN_SIZE, BTN_SIZE, SWP_SHOWWINDOW);
-        bx += BTN_SIZE + SP;
+
+    for (auto& b : btns) {
+        if (!b.h)
+            continue;
+        if (b.valid) {
+            SetWindowPos(b.h, HWND_TOP, bx, btnRowY, BTN_SIZE, BTN_SIZE, SWP_SHOWWINDOW);
+            bx += BTN_SIZE + SP;
+        } else {
+            ShowWindow(b.h, SW_HIDE);
+        }
     }
+
+    // ---- Volume group (pakai perhitungan yang konsisten) ----
+    int volTotalW = VOL_ICON_W + VOL_GAP + VOL_W + VOL_GAP + VOL_PERC_W;
+    int volX = width - EDGE - volTotalW;
+    int volY = btnRowY + (BTN_SIZE - CTRL_H) / 2;
 
     if (g_hVolIcon)
         SetWindowPos(g_hVolIcon, HWND_TOP, volX, volY, VOL_ICON_W, CTRL_H, SWP_SHOWWINDOW);
 
     if (g_hVolume)
-        SetWindowPos(g_hVolume, HWND_TOP, volX + VOL_ICON_W + VOL_GAP, volY, VOL_W, CTRL_H, SWP_SHOWWINDOW);
+        MoveWindow(g_hVolume,
+                   volX + VOL_ICON_W + VOL_GAP, // sejajar dengan icon, bukan hardcode
+                   volY, VOL_W, CTRL_H, TRUE);
 
     if (g_hVolPercent)
         SetWindowPos(g_hVolPercent, HWND_TOP, volX + VOL_ICON_W + VOL_GAP + VOL_W + VOL_GAP, volY, VOL_PERC_W, CTRL_H,
                      SWP_SHOWWINDOW);
 
+    // ---- Time label (di bawah volume) ----
     if (g_hTimeLabel) {
         int timeW = CurrentTimeLabelWidth(g_hTimeLabel, m_hTimeFont);
         int timeX = width - EDGE - timeW;

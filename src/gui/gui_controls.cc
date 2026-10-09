@@ -4,27 +4,60 @@
 #include <functional>
 #include <cmath>
 
-namespace guiVidi {
+#include <shlobj.h>
+#include <ShObjIdl.h>
+#include <atlbase.h>
+#include <vector>
+#include <algorithm>
+#include <cwctype>
 
+namespace guiVidi {
+static bool IsMediaExtension(const std::wstring& filename);
 // ==========================================
 // MEDIA READY — set range trackbar sesuai durasi asli video
 // ==========================================
 void VideoPlayerGUI::OnMediaReady() {
     m_cachedDuration = m_player.GetDuration();
     double dur = m_cachedDuration;
-    int range = static_cast<int>(dur * 10.0);
-    if (range < 100)
-        range = 100;
+    double range = dur * 10.0;
+    if (range < 100.0)
+        range = 100.0;
+    if (range > 10000.0)
+        range = 10000.0;
     m_progressRangeMax = range;
     SendMessage(g_hProgress, TBM_SETRANGEMIN, TRUE, 0);
     SendMessage(g_hProgress, TBM_SETRANGEMAX, TRUE, m_progressRangeMax);
     SetProgressPos(0);
     UpdateTimeLabel(0.0, dur);
+    m_hasPendingSeek = false;
+    m_lastDurCheckTick = 0;
     FitWindowToVideo();
 
     m_player.ShowVideoWindow();
-}
+    m_player.UpdateVideoSize();
+    if (g_hVideoArea) {
+        InvalidateRect(g_hVideoArea, nullptr, TRUE);
+    }
+    UpdateMenuState(true);
 
+    if (m_isFullscreen && m_hFsOverlay && IsWindowVisible(m_hFsOverlay)) {
+        InvalidateRect(m_hFsOverlay, nullptr, FALSE);
+    }
+
+    // ============================================
+    // [FIX SUBTITLE REFRESH]
+    // VMR-7 + VSFilter tidak otomatis push frame baru
+    // dengan subtitle composite sampai ada re-negotiation.
+    // Force seek kecil (50ms) → decoder push frame baru
+    // → VSFilter composite subtitle → VMR-7 render.
+    // Efeknya sama seperti klik F, tapi transparan untuk user.
+    // ============================================
+    KillTimer(g_hMainWnd, ID_TIMER_SUBTITLE_REFRESH);
+    if (m_player.IsVSFilterSubtitleActive()) {
+        SetTimer(g_hMainWnd, ID_TIMER_SUBTITLE_REFRESH, 200, nullptr);
+        OutputDebugStringW(L"[VIDI] Subtitle refresh timer armed (VSFilter active, 200ms)\n");
+    }
+}
 // ==========================================
 // COMMAND HANDLER
 // ==========================================
@@ -38,6 +71,8 @@ void VideoPlayerGUI::OnCommand(WPARAM wParam, LPARAM lParam) {
         } else {
             m_player.Play();
             SetPlayPauseUI(true);
+            if (m_cachedDuration > 0.0)
+                UpdateMenuState(true);
         }
         break;
 
@@ -47,18 +82,24 @@ void VideoPlayerGUI::OnCommand(WPARAM wParam, LPARAM lParam) {
         SetPlayPauseUI(false);
         SetProgressPos(0);
         m_cachedDuration = 0.0;
+        UpdateMenuState(false);
+        HideSubOverlayWindows();
         break;
 
     case IDC_BTN_SKIPBACK:
     case IDM_PLAYBACK_SKIPBACK: {
         double pos = m_player.GetPosition();
-        m_player.Seek(pos > 10.0 ? pos - 10.0 : 0.0);
+        double target = pos > 10.0 ? pos - 10.0 : 0.0;
+        m_player.Seek(target);
+        BeginSubtitleSeekDelay(); // <-- BARU
         break;
     }
     case IDC_BTN_SKIPFORWARD:
     case IDM_PLAYBACK_SKIPFWD: {
         double pos = m_player.GetPosition();
-        m_player.Seek((pos + 10.0 < m_cachedDuration) ? pos + 10.0 : m_cachedDuration);
+        double target = (pos + 10.0 < m_cachedDuration) ? pos + 10.0 : m_cachedDuration;
+        m_player.Seek(target);
+        BeginSubtitleSeekDelay(); // <-- BARU
         break;
     }
 
@@ -71,6 +112,7 @@ void VideoPlayerGUI::OnCommand(WPARAM wParam, LPARAM lParam) {
         break;
 
     case IDC_BTN_PLAYLIST:
+        TogglePlaylistWindow();
         break;
 
     case IDC_BTN_LOOP:
@@ -85,6 +127,12 @@ void VideoPlayerGUI::OnCommand(WPARAM wParam, LPARAM lParam) {
 
     case IDM_FILE_OPEN:
         OpenFileDialog();
+        break;
+    case IDM_OPEN_FOLDER:
+        OpenFolderDialog();
+        break;
+    case IDM_PLAYLIST:
+        ShowPlaylistFromMenu();
         break;
 
     case IDM_FILE_EXIT:
@@ -168,10 +216,24 @@ void VideoPlayerGUI::OnTimerTick() {
             PokeOSControls();
         }
     }
+
     if (m_isDraggingProgress)
         return;
+
     DWORD now = GetTickCount();
-    if (now - m_lastDurCheckTick > 500) {
+
+    // ---- Adaptive interval untuk cek durasi ----
+    int interval = 500;
+    if (m_cachedDuration > 0.0) {
+        if (m_cachedDuration < 60.0)
+            interval = 100;
+        else if (m_cachedDuration < 30 * 60)
+            interval = 500;
+        else
+            interval = 2000;
+    }
+
+    if (now - m_lastDurCheckTick > interval) {
         m_lastDurCheckTick = now;
         double fresh = m_player.GetDuration();
         if (fresh > 0.0 && fabs(fresh - m_cachedDuration) > 0.5) {
@@ -179,41 +241,83 @@ void VideoPlayerGUI::OnTimerTick() {
             int range = static_cast<int>(fresh * 10.0);
             if (range < 100)
                 range = 100;
+            if (range > 10000)
+                range = 10000;
             m_progressRangeMax = range;
             SendMessage(g_hProgress, TBM_SETRANGEMIN, TRUE, 0);
             SendMessage(g_hProgress, TBM_SETRANGEMAX, TRUE, m_progressRangeMax);
         }
     }
+
     double dur = m_cachedDuration;
     if (dur <= 0.0)
         return;
+
+    if (!m_videoLayoutApplied && !m_isFullscreen) {
+        // ============================================
+        // [FIX] Poll native video size — VMR-7 tidak
+        // reliable fire EC_VIDEO_SIZE_CHANGED. Kita
+        // cek setiap tick sampai video decoder lapor
+        // dimensi aslinya, lalu apply layout final.
+        // ============================================
+        int vidW = 0, vidH = 0;
+        m_player.GetNativeVideoSize(vidW, vidH);
+        if (vidW > 0 && vidH > 0) {
+            m_player.UpdateVideoSize();
+            m_videoLayoutApplied = true;
+            if (g_hVideoArea) {
+                InvalidateRect(g_hVideoArea, nullptr, TRUE);
+            }
+            OutputDebugStringW(L"[VIDI] Video layout applied after first frame\n");
+        }
+    }
+    // ---- Pending seek (drag) ----
     if (m_hasPendingSeek) {
         double actualPos = m_player.GetPosition();
-        DWORD elapsed = GetTickCount() - m_pendingSeekStartTick;
+        DWORD elapsed = now - m_pendingSeekStartTick;
         bool settled = (fabs(actualPos - m_pendingSeekTarget) < 1.0) || (elapsed > 1500);
 
         if (settled) {
             m_hasPendingSeek = false;
         } else {
-            if (dur > 0.0) {
-                int sliderPos = static_cast<int>((m_pendingSeekTarget / dur) * m_progressRangeMax);
-                SetProgressPos(sliderPos);
-            }
+            int sliderPos = static_cast<int>((m_pendingSeekTarget / dur) * m_progressRangeMax);
+            SetProgressPos(sliderPos);
             UpdateTimeLabel(m_pendingSeekTarget, dur);
             return;
         }
     }
 
+    // ---- Update progress & time ----
     double pos = m_player.GetPosition();
+    UpdateTimeLabel(pos, dur);
+
     int sliderPos = static_cast<int>((pos / dur) * m_progressRangeMax);
     if (sliderPos < 0)
         sliderPos = 0;
     if (sliderPos > m_progressRangeMax)
         sliderPos = m_progressRangeMax;
     SetProgressPos(sliderPos);
-    UpdateTimeLabel(pos, dur);
 
-    UpdateSubtitleDisplays(pos);
+    // ---- Subtitle ----
+    // Kalau masih dalam window delay setelah seek, skip update saja.
+    // JANGAN paksa refresh — biarkan VSFilter re-render natural.
+    if (m_subtitleSeekUntilTick > 0) {
+        if (now < m_subtitleSeekUntilTick) {
+            // masih dalam window delay → skip, overlay lama tetap tampil
+            // (atau kalau mau hilangkan sekalian, bisa HideAllSubOverlays() di sini)
+        } else {
+            // delay habis → aktifkan kembali update subtitle normal
+            m_subtitleSeekUntilTick = 0;
+            UpdateSubtitleDisplays(pos); // TANPA force=true
+        }
+    } else {
+        UpdateSubtitleDisplays(pos);
+    }
+
+    // ---- Repaint fullscreen overlay ----
+    if (m_isFullscreen && m_hFsOverlay && IsWindowVisible(m_hFsOverlay)) {
+        InvalidateRect(m_hFsOverlay, nullptr, FALSE);
+    }
 }
 
 void VideoPlayerGUI::UpdateTimeLabel(double posSeconds, double durSeconds) {
@@ -230,15 +334,18 @@ void VideoPlayerGUI::UpdateTimeLabel(double posSeconds, double durSeconds) {
     }
 
     SetWindowTextW(g_hTimeLabel, buf);
-    InvalidateRect(g_hTimeLabel, nullptr, FALSE);
 
-    int needed = MeasureStringWidth(g_hTimeLabel, m_hTimeFont, buf);
-    RECT rc;
-    GetWindowRect(g_hTimeLabel, &rc);
-    if (needed > (rc.right - rc.left) && g_hMainWnd) {
-        RECT rcC;
-        GetClientRect(g_hMainWnd, &rcC);
-        LayoutControls(rcC.right, rcC.bottom);
+    if (!m_isFullscreen) {
+        InvalidateRect(g_hTimeLabel, nullptr, FALSE);
+
+        int needed = MeasureStringWidth(g_hTimeLabel, m_hTimeFont, buf);
+        RECT rc;
+        GetWindowRect(g_hTimeLabel, &rc);
+        if (needed > (rc.right - rc.left) && g_hMainWnd) {
+            RECT rcC;
+            GetClientRect(g_hMainWnd, &rcC);
+            LayoutControls(rcC.right, rcC.bottom);
+        }
     }
 }
 
@@ -253,6 +360,134 @@ void VideoPlayerGUI::SetPlayPauseUI(bool playing) {
     SetTimer(g_hMainWnd, ID_TIMER_UPDATE, playing ? 33 : 500, nullptr);
 }
 
+LRESULT CALLBACK VideoPlayerGUI::PlaylistWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    VideoPlayerGUI* self = (VideoPlayerGUI*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+
+    switch (uMsg) {
+    case WM_CREATE: {
+        CREATESTRUCT* cs = (CREATESTRUCT*)lParam;
+        self = (VideoPlayerGUI*)cs->lpCreateParams;
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)self);
+        return 0;
+    }
+
+    case WM_SIZE:
+        if (self && self->g_hPlaylistBox) {
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            SetWindowPos(self->g_hPlaylistBox, nullptr, 0, 0, rc.right, rc.bottom, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        return 0;
+
+    // ===== HANDLER UTAMA: klik / double-click di listbox =====
+    case WM_COMMAND: {
+        if (!self)
+            break;
+        int id = LOWORD(wParam);
+        int code = HIWORD(wParam);
+
+        if (id == IDC_PLAYLIST_BOX && code == LBN_DBLCLK) {
+            int idx = (int)SendMessage(self->g_hPlaylistBox, LB_GETCURSEL, 0, 0);
+            if (idx != LB_ERR && idx < (int)self->m_playlist.size()) {
+                self->PlayFileFromPlaylist(idx);
+            }
+            return 0;
+        }
+        return 0;
+    }
+
+    case WM_CLOSE:
+        ShowWindow(hwnd, SW_HIDE);
+        return 0;
+    case WM_DESTROY: {
+        if (self) {
+            self->m_hPlaylistWnd = nullptr;
+            self->g_hPlaylistBox = nullptr;
+        }
+        return 0;
+    }
+    case WM_GETMINMAXINFO: {
+        MINMAXINFO* mmi = (MINMAXINFO*)lParam;
+        mmi->ptMinTrackSize.x = 240;
+        mmi->ptMinTrackSize.y = 300;
+        return 0;
+    }
+    }
+    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
+// ==========================================
+// CREATE PLAYLIST WINDOW (window terpisah)
+// ==========================================
+void VideoPlayerGUI::CreatePlaylistWindow() {
+    // ===== Guard: kalau sudah ada, jangan buat lagi =====
+    if (m_hPlaylistWnd && IsWindow(m_hPlaylistWnd)) {
+        OutputDebugStringW(L"[VIDI] CreatePlaylistWindow: sudah ada, skip\n");
+        return;
+    }
+
+    HINSTANCE hInst = GetModuleHandle(nullptr);
+
+    // ===== Register class (sekali saja) =====
+    static bool s_classRegistered = false;
+    if (!s_classRegistered) {
+        WNDCLASSEXW wc = {};
+        wc.cbSize = sizeof(wc);
+        wc.style = CS_HREDRAW | CS_VREDRAW;
+        wc.lpfnWndProc = PlaylistWndProc;
+        wc.hInstance = hInst;
+        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"VidiPlaylistWnd";
+        wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+
+        if (!RegisterClassExW(&wc)) {
+            DWORD err = GetLastError();
+            if (err != ERROR_CLASS_ALREADY_EXISTS) {
+                wchar_t buf[128];
+                swprintf_s(buf, L"[VIDI] RegisterClassExW gagal: %lu\n", err);
+                OutputDebugStringW(buf);
+                return;
+            }
+        }
+        s_classRegistered = true;
+    }
+
+    // ===== Buat window playlist =====
+    m_hPlaylistWnd = CreateWindowExW(0, L"VidiPlaylistWnd", L"Playlist — Vidi", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+                                     CW_USEDEFAULT, 340, 520, g_hMainWnd, nullptr, hInst, this);
+
+    if (!m_hPlaylistWnd) {
+        DWORD err = GetLastError();
+        wchar_t buf[128];
+        swprintf_s(buf, L"[VIDI] CreateWindowExW playlist gagal: %lu\n", err);
+        OutputDebugStringW(buf);
+        return;
+    }
+
+    // ===== Buat ListBox =====
+    g_hPlaylistBox =
+        CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+                        WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT, 0, 0,
+                        100, 100, m_hPlaylistWnd, (HMENU)IDC_PLAYLIST_BOX, hInst, nullptr);
+
+    if (!g_hPlaylistBox) {
+        DWORD err = GetLastError();
+        wchar_t buf[128];
+        swprintf_s(buf, L"[VIDI] CreateWindowExW listbox gagal: %lu\n", err);
+        OutputDebugStringW(buf);
+
+        // ==== FIX BUG 1: Destroy playlist window biar bisa retry ====
+        DestroyWindow(m_hPlaylistWnd);
+        m_hPlaylistWnd = nullptr;
+        return;
+    }
+
+    SendMessage(g_hPlaylistBox, WM_SETFONT, (WPARAM)m_hModernFont, TRUE);
+    OutputDebugStringW(L"[VIDI] CreatePlaylistWindow: sukses\n");
+}
+
+// sesi untuk membuka file video
 void VideoPlayerGUI::OpenFileDialog() {
     HideAllSubOverlays();
 
@@ -270,22 +505,224 @@ void VideoPlayerGUI::OpenFileDialog() {
 
     if (!GetOpenFileName(&ofn))
         return;
+    // reset playlist "open file"
+    m_playlist.clear();
+    m_playlist.push_back(filePath);
+    m_playlistIndex = 0;
 
+    // update listBox kalau window sudah ada
+    if (m_hPlaylistWnd && g_hPlaylistBox) {
+        SendMessage(g_hPlaylistBox, LB_RESETCONTENT, 0, 0);
+
+        size_t slash = m_playlist[0].find_last_of(L"\\/");
+        std::wstring name = (slash == std::wstring::npos) ? m_playlist[0] : m_playlist[0].substr(slash + 1);
+        SendMessage(g_hPlaylistBox, LB_ADDSTRING, 0, (LPARAM)name.c_str());
+        SendMessage(g_hPlaylistBox, LB_SETCURSEL, 0, 0);
+    }
+
+    // cleanup dan putar
     m_player.Stop();
+    m_player.CloseFile();
     SetPlayPauseUI(false);
     SetProgressPos(0);
     UpdateTimeLabel(0.0, 0.0);
     m_cachedDuration = 0.0;
     m_hasPendingSeek = false;
     m_isDraggingProgress = false;
-
+    m_videoLayoutApplied = false;
     if (m_player.OpenFile(filePath)) {
         m_player.Play();
         SetPlayPauseUI(true);
         m_subsHidden = false;
+        UpdateMenuState(true);
     } else {
+        // gagal buka file, menu tetap disabled
+        UpdateMenuState(false);
         MessageBox(g_hMainWnd, L"Gagal membuka file. Format mungkin tidak didukung.", L"Vidi", MB_OK | MB_ICONERROR);
     }
+}
+
+// sesi untuk open file melalui folder
+void VideoPlayerGUI::OpenFolderDialog() {
+    HRESULT hrInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    bool comInitializedHere = SUCCEEDED(hrInit);
+
+    std::wstring folderPath;
+    {
+        IFileOpenDialog* pDlg = nullptr;
+        HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDlg));
+        if (SUCCEEDED(hr) && pDlg) {
+            DWORD opts = 0;
+            pDlg->GetOptions(&opts);
+            // FOS_PICKFOLDERS = mode pilih folder (bukan file)
+            pDlg->SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_DONTADDTORECENT);
+
+            pDlg->SetTitle(L"Pilih folder berisi file video");
+
+            // Filter opsional: tetap terima semua, tapi user pilih folder
+            const COMDLG_FILTERSPEC filters[] = {
+                {L"Video/Audio Files",
+                 L"*.mp4;*.mkv;*.avi;*.mov;*.wmv;*.webm;*.m4v;*.ts;*.flv;*.mp3;*.aac;*.flac;*.wav;*.ogg"},
+                {L"Semua File", L"*.*"}};
+            pDlg->SetFileTypes(2, filters);
+
+            // Tombol OK berubah jadi "Pilih Folder"
+            pDlg->SetOkButtonLabel(L"Pilih Folder");
+
+            hr = pDlg->Show(g_hMainWnd);
+            if (SUCCEEDED(hr)) {
+                IShellItem* pItem = nullptr;
+                if (SUCCEEDED(pDlg->GetResult(&pItem)) && pItem) {
+                    PWSTR pszPath = nullptr;
+                    if (SUCCEEDED(pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszPath)) && pszPath) {
+                        folderPath = pszPath;
+                        CoTaskMemFree(pszPath);
+                    }
+                    pItem->Release();
+                }
+            }
+            pDlg->Release();
+        }
+    }
+
+    if (comInitializedHere)
+        CoUninitialize();
+
+    if (folderPath.empty())
+        return; // user batal / gagal
+
+    // --- 2. Scan file media di folder (sama seperti sebelumnya) ---
+    std::wstring search = folderPath + L"\\*.*";
+    WIN32_FIND_DATAW fd = {};
+    HANDLE hFind = FindFirstFileW(search.c_str(), &fd);
+    if (hFind == INVALID_HANDLE_VALUE) {
+        MessageBoxW(g_hMainWnd, L"Folder kosong atau tidak bisa dibaca.", L"Vidi", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    std::vector<std::wstring> files;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            continue;
+        std::wstring name = fd.cFileName;
+        if (IsMediaExtension(name))
+            files.push_back(folderPath + L"\\" + name);
+    } while (FindNextFileW(hFind, &fd));
+    FindClose(hFind);
+
+    if (files.empty()) {
+        MessageBoxW(g_hMainWnd, L"Tidak ada file video di folder ini.", L"Vidi", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    // --- 3. Urutkan alfabetis ---
+    std::sort(files.begin(), files.end());
+
+    // --- 4. Reset state & putar file pertama ---
+    m_playlist = files;
+    m_playlistIndex = -1;
+
+    if (!m_hPlaylistWnd)
+        CreatePlaylistWindow();
+
+    if (!g_hPlaylistBox) {
+        MessageBoxW(g_hMainWnd, L"Gagal membuat window playlist.", L"Vidi", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    SendMessage(g_hPlaylistBox, LB_RESETCONTENT, 0, 0);
+    for (auto& f : m_playlist) {
+        size_t slash = f.find_last_of(L"\\/");
+        std::wstring name = (slash == std::wstring::npos) ? f : f.substr(slash + 1);
+        SendMessage(g_hPlaylistBox, LB_ADDSTRING, 0, (LPARAM)name.c_str());
+    }
+
+    if (m_hPlaylistWnd && !IsWindowVisible(m_hPlaylistWnd)) {
+        ShowWindow(m_hPlaylistWnd, SW_SHOW);
+    }
+
+    // --- 5. Putar file pertama ---
+    PlayFileFromPlaylist(0);
+}
+
+void VideoPlayerGUI::PlayFileFromPlaylist(int index) {
+    if (index < 0 || index >= (int)m_playlist.size())
+        return;
+    HideAllSubOverlays(); // [FIX] bersihkan subtitle dari file sebelumnya
+    m_playlistIndex = index;
+
+    if (g_hPlaylistBox)
+        SendMessage(g_hPlaylistBox, LB_SETCURSEL, index, 0);
+
+    // ===== CLEANUP YANG BENAR =====
+    m_player.Stop();
+    m_player.CloseFile(); // KALAU ada — lihat catatan di bawah
+
+    // Reset state
+    SetPlayPauseUI(false);
+    SetProgressPos(0);
+    UpdateTimeLabel(0.0, 0.0);
+    m_cachedDuration = 0.0;
+    m_hasPendingSeek = false;
+    m_isDraggingProgress = false;
+    m_videoLayoutApplied = false;
+
+    if (m_player.OpenFile(m_playlist[index].c_str())) {
+        m_player.Play();
+        SetPlayPauseUI(true);
+        m_subsHidden = false;
+    } else {
+        UpdateMenuState(false);
+        MessageBoxW(g_hMainWnd, L"Gagal memutar file.", L"Vidi", MB_OK | MB_ICONERROR);
+    }
+}
+
+// ==========================================
+// TOGGLE PANEL PLAYLIST (show/hide sidebar)
+// ==========================================
+void VideoPlayerGUI::TogglePlaylistWindow() {
+    if (!m_hPlaylistWnd) {
+        CreatePlaylistWindow();
+    }
+    if (!m_hPlaylistWnd)
+        return;
+
+    if (IsWindowVisible(m_hPlaylistWnd)) {
+        ShowWindow(m_hPlaylistWnd, SW_HIDE);
+    } else {
+        ShowWindow(m_hPlaylistWnd, SW_SHOW);
+        SetForegroundWindow(m_hPlaylistWnd);
+    }
+}
+
+// helper untuk cek ektensi file video media
+
+static bool IsMediaExtension(const std::wstring& filename) {
+    size_t dot = filename.find_last_of(L'.');
+    if (dot == std::wstring::npos)
+        return false;
+
+    std::wstring ext = filename.substr(dot);
+    for (auto& c : ext)
+        c = (wchar_t)towlower(c);
+
+    return ext == L".mp4" || ext == L".mkv" || ext == L".avi" || ext == L".mov" || ext == L".wmv" || ext == L".webm" ||
+           ext == L".m4v" || ext == L".ts" || ext == L".flv" || ext == L".mp3" || ext == L".aac" || ext == L".flac" ||
+           ext == L".wav" || ext == L".ogg";
+}
+
+void VideoPlayerGUI::ShowPlaylistFromMenu() {
+    if (m_playlist.empty()) {
+        MessageBoxW(g_hMainWnd,
+                    L"Belum ada playlist.\n\n"
+                    L"Buka file via Media → Open File,\n"
+                    L"atau Media → Open Folder untuk memuat banyak file.",
+                    L"Vidi — Playlist", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    // Playlist ada isi → toggle window seperti tombol playlist
+    TogglePlaylistWindow();
 }
 
 // ==========================================
@@ -295,7 +732,8 @@ void VideoPlayerGUI::CreateMenuBar(HWND hwnd) {
     HMENU hMenuBar = CreateMenu();
 
     HMENU hMedia = CreatePopupMenu();
-    AppendMenu(hMedia, MF_STRING, IDM_FILE_OPEN, L"Open...\tCtrl+O");
+    AppendMenu(hMedia, MF_STRING, IDM_FILE_OPEN, L"Open File \tCtrl+O");
+    AppendMenu(hMedia, MF_STRING, IDM_OPEN_FOLDER, L"Open Folder...\tCtrl+Shift+O");
     AppendMenu(hMedia, MF_SEPARATOR, 0, nullptr);
     AppendMenu(hMedia, MF_STRING, IDM_FILE_EXIT, L"Exit\tAlt+F4");
     AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMedia, L"Media");
@@ -344,6 +782,28 @@ void VideoPlayerGUI::CreateMenuBar(HWND hwnd) {
 
     m_hMenuBar = hMenuBar;
     SetMenu(hwnd, hMenuBar);
+}
+
+// create update menu state
+void VideoPlayerGUI::UpdateMenuState(bool hasMedia) {
+    if (!m_hMenuBar || !g_hMainWnd)
+        return;
+    // jika hasMedia true-> menu akan ENABLED. Jika false, akan GRAYED (nonaktif).
+    UINT flags = MF_BYPOSITION | (hasMedia ? MF_ENABLED : MF_GRAYED);
+    // Kita nonaktifkan menu yang berhubungan dengan pemutaran video
+    EnableMenuItem(m_hMenuBar, 1, flags); // Playback
+    EnableMenuItem(m_hMenuBar, 2, flags); // Audio
+    EnableMenuItem(m_hMenuBar, 3, flags); // Video
+    EnableMenuItem(m_hMenuBar, 4, flags); // Subtitle
+    EnableMenuItem(m_hMenuBar, 5, flags); // Tools
+    // section untuk tombol toolbar
+    EnableMenuItem(m_hMenuBar, IDM_TAKE_SNAPSHOT, MF_BYCOMMAND | MF_GRAYED);
+    EnableMenuItem(m_hMenuBar, IDM_SUB_ADD_FILE, MF_BYCOMMAND | MF_GRAYED);
+    EnableMenuItem(m_hMenuBar, IDM_SUB_TRACK, MF_BYCOMMAND | MF_GRAYED);
+    EnableMenuItem(m_hMenuBar, IDM_EFFECTS_FILTERS, MF_BYCOMMAND | MF_GRAYED);
+    EnableMenuItem(m_hMenuBar, IDM_CODEC_INFO, MF_BYCOMMAND | MF_GRAYED);
+    EnableMenuItem(m_hMenuBar, IDM_PREFERENCES, MF_BYCOMMAND | MF_GRAYED);
+    DrawMenuBar(g_hMainWnd);
 }
 
 // ==========================================
@@ -476,8 +936,7 @@ void VideoPlayerGUI::CreateControls(HWND hwnd) {
         else
             SendMessage(hCtrl, WM_SETFONT, (WPARAM)m_hModernFont, TRUE);
         hCtrl = GetNextWindow(hCtrl, GW_HWNDNEXT);
-    }
-
+    };
     m_player.Initialize(g_hVideoArea, hwnd);
     CreateSubtitleOverlay(hwnd);
     SetTimer(hwnd, ID_TIMER_UPDATE, TIMER_INTERVAL_MS, nullptr);

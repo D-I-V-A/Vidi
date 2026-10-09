@@ -9,9 +9,14 @@
 #include <vsstyle.h>
 #include <Uxtheme.h>
 #include <map>
+#include <vector>
+#include <string>
+#include <shobjidl.h>
 
 namespace guiVidi {
-
+const COMDLG_FILTERSPEC filters[] = {
+    {L"Video/Audio Files", L"*.mp4;*.mkv;*.avi;*.mov;*.wmv;*.webm;*.m4v;*.ts;*.flv;*.mp3;*.aac;*.flac;*.wav;*.ogg"},
+    {L"Semua File", L"*.*"}};
 class VideoPlayerGUI {
   private:
     HWND g_hPlayBtn, g_hStopBtn;
@@ -32,9 +37,11 @@ class VideoPlayerGUI {
 
     kernelPlayerVidi::DirectShowPlayer m_player;
     bool m_isDraggingProgress;
+    bool m_videoLayoutApplied;
     bool m_isPlaying;
     DWORD m_lastSeekTick;
     DWORD m_lastDurCheckTick;
+    DWORD m_subtitleSeekUntilTick;
     bool m_hasPendingSeek;
     double m_pendingSeekTarget;
     DWORD m_pendingSeekStartTick;
@@ -44,10 +51,12 @@ class VideoPlayerGUI {
     double m_cachedDuration;
     WINDOWPLACEMENT m_prevPlacement;
     bool m_isFullscreen;
+    bool m_transitionDark;
     bool m_cursorHidden;
     bool m_wasMinimized;
     POINT m_lastCursor;
     HWND m_hTimeTip;
+    HWND m_hFsOverlay;
     bool m_seekHot;
     int m_hotX;
 
@@ -57,6 +66,11 @@ class VideoPlayerGUI {
 
     bool m_isLooping;
     bool m_isShuffle;
+    std::vector<std::wstring> m_playlist;
+    int m_playlistIndex;
+    HWND g_hPlaylistBox;
+    HWND m_hPlaylistWnd;
+    bool m_playlistVisible;
 
     DWORD m_lastVideoClickTick;
     short m_lastVideoClickX, m_lastVideoClickY;
@@ -68,18 +82,34 @@ class VideoPlayerGUI {
     int m_subBmpH[2] = {};
     HFONT m_hSubFont;
     std::map<int, HFONT> m_subFontCache;
+    bool m_appActivate = true;
     bool m_subsHidden;
+    bool m_isClosing;
     int m_lastUsedOverlays = 0;
     uint32_t m_lastMediaReadyGen = 0;
     size_t m_lastSubContentHash = 0;
+    int m_lastSubFrameW = 0;
+    int m_lastSubFrameH = 0;
+    int m_lastSubOverlayX = 0;
+    int m_lastSubOverlayY = 0;
+    DWORD m_lastSubRenderTick = 0;
+    double m_lastSubPosition = 0.0;
+    bool m_subNeedsUpdate = false;
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void CreateMenuBar(HWND hwnd);
+    void UpdateMenuState(bool hasMedia);
     void LayoutControls(int width, int height);
     void CreateControls(HWND hwnd);
     void OnCommand(WPARAM wParam, LPARAM lParam);
     void OnHScroll(WPARAM wParam, LPARAM lParam);
     void OnTimerTick();
     void OpenFileDialog();
+    void OpenFolderDialog();
+    void CreatePlaylistWindow();
+    void TogglePlaylistWindow();
+    void ShowPlaylistFromMenu();
+    static LRESULT CALLBACK PlaylistWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+    void PlayFileFromPlaylist(int index);
     void UpdateTimeLabel(double posSeconds, double durSeconds);
     void SetPlayPauseUI(bool playing);
     void SeekFromTrackbarClick(int mouseX);
@@ -101,11 +131,21 @@ class VideoPlayerGUI {
     void ShowOSControls(bool visible);
     void PokeOSControls();
     bool CursorOverControls();
+    bool CursorOverFsOverlay();
+    void CreateFsOverlay();
+    void CollectFullscreenControls(HWND* out, int& count) const;
+    void DestroyFsOverlay();
+    void LayoutFsOverlay(int screenW, int screenH);
+    void ShowFsOverlay(bool visible);
+    static LRESULT CALLBACK FsOverlayWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void RecoverVideo();
     void LayoutFullscreen(int width, int height);
     void CreateSubtitleOverlay(HWND hwnd);
-    void UpdateSubtitleDisplays(double posSeconds);
+    void UpdateSubtitleDisplays(double posSeconds, bool force = false);
+    void BeginSubtitleSeekDelay();
+    void BeginSubtitleDelay();
     void HideAllSubOverlays();
+    void HideSubOverlayWindows();
     HACCEL CreatePlayerAccelTable();
     void UpdateVolumePercent(int pos);
     void SetToggleBtnState(HWND btn, bool active);
@@ -150,9 +190,11 @@ class VideoPlayerGUI {
           m_hTimeFont(nullptr),
           m_hTipFont(nullptr),
           m_isDraggingProgress(false),
+          m_videoLayoutApplied(false),
           m_isPlaying(false),
           m_lastSeekTick(0),
           m_lastDurCheckTick(0),
+          m_subtitleSeekUntilTick(0),
           m_hasPendingSeek(false),
           m_pendingSeekTarget(0.0),
           m_pendingSeekStartTick(0),
@@ -161,6 +203,7 @@ class VideoPlayerGUI {
           m_isMuted(false),
           m_cachedDuration(0.0),
           m_hTimeTip(nullptr),
+          m_hFsOverlay(nullptr),
           m_seekHot(false),
           m_hotX(0),
           m_volHot(false),
@@ -168,7 +211,12 @@ class VideoPlayerGUI {
           m_volHotX(0),
           m_isLooping(false),
           m_isShuffle(false),
+          m_playlistIndex(-1),
+          g_hPlaylistBox(nullptr),
+          m_playlistVisible(false),
+          m_hPlaylistWnd(nullptr),
           m_isFullscreen(false),
+          m_transitionDark(false),
           m_cursorHidden(false),
           m_wasMinimized(false),
           m_lastCursor{-1, -1},
@@ -179,6 +227,7 @@ class VideoPlayerGUI {
           m_hSubBmp{nullptr, nullptr},
           m_pSubBmpBits{nullptr, nullptr},
           m_subsHidden(false),
+          m_isClosing(false),
           m_prevPlacement{sizeof(WINDOWPLACEMENT)} {
         for (int i = 0; i < MAX_SUB_OVERLAYS; ++i)
             m_hSubOverlay[i] = nullptr;
