@@ -1,53 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <CPackWiXPatch>
 
-  <!-- ============================================================ -->
-  <!-- Shortcut di Start Menu                                        -->
-  <!-- ============================================================ -->
-  <Fragment>
-    <DirectoryRef Id="TARGETDIR">
-      <Directory Id="ProgramMenuVidiDir" Name="Vidi" />
-    </DirectoryRef>
-  </Fragment>
+  <CPackWiXFragment Id="CM_CP_bin.Vidi.exe">
 
-  <Fragment>
-    <ComponentGroup Id="StartMenuShortcuts" Directory="ProgramMenuVidiDir">
-      <Component Id="StartMenuShortcutComp" Guid="*">
-        <Shortcut Id="StartMenuShortcut"
-                  Name="Vidi"
-                  Description="Vidi Video &amp; Audio Player"
-                  Target="[#CM_FP_bin.Vidi.exe]"
-                  WorkingDirectory="INSTALL_ROOT" />
-        <RemoveFolder Id="ProgramMenuVidiDir" On="uninstall" />
-        <RegistryValue Root="HKCU"
-                       Key="Software\Vidi"
-                       Name="StartMenuShortcut"
-                       Type="integer"
-                       Value="1"
-                       KeyPath="yes" />
-      </Component>
-    </ComponentGroup>
-  </Fragment>
+    <Shortcut Id="DesktopShortcut"
+              Directory="DesktopFolder"
+              Name="Vidi"
+              Description="Vidi Video &amp; Audio Player"
+              Target="[#CM_FP_bin.Vidi.exe]"
+              WorkingDirectory="INSTALL_ROOT" />
 
-  <!-- ============================================================ -->
-  <!-- Shortcut di Desktop                                           -->
-  <!-- ============================================================ -->
-  <Fragment>
-    <ComponentGroup Id="DesktopShortcuts" Directory="DesktopFolder">
-      <Component Id="DesktopShortcutComp" Guid="*">
-        <Shortcut Id="DesktopShortcut"
-                  Name="Vidi"
-                  Description="Vidi Video &amp; Audio Player"
-                  Target="[#CM_FP_bin.Vidi.exe]"
-                  WorkingDirectory="INSTALL_ROOT" />
-        <RegistryValue Root="HKCU"
-                       Key="Software\Vidi"
-                       Name="DesktopShortcut"
-                       Type="integer"
-                       Value="1"
-                       KeyPath="yes" />
-      </Component>
-    </ComponentGroup>
-  </Fragment>
+    <Shortcut Id="StartMenuShortcut"
+              Directory="ProgramMenuFolder"
+              Name="Vidi"
+              Description="Vidi Video &amp; Audio Player"
+              Target="[#CM_FP_bin.Vidi.exe]"
+              WorkingDirectory="INSTALL_ROOT" />
+
+  </CPackWiXFragment>
 
 </CPackWiXPatch>
