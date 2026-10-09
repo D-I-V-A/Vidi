@@ -25,26 +25,83 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Install WiX Toolset
         run: choco install wixtoolset -y
+
       - name: Install dependencies via vcpkg
         run: C:\vcpkg\vcpkg install
         shell: cmd
+
       - name: Configure CMake
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
         env:
           VCPKG_ROOT: C:\vcpkg
+
       - run: cmake --build build --config Release
+
       - name: Build Installer
         run: cpack -C Release -G WIX
         working-directory: build
+
+      # ----------------------------------------------------------
+      # Baca versi dari CMakeLists.txt
+      #   project(Vidi VERSION 0.1)         → 0.1
+      #   set(PROJECT_VERSION_SUFFIX "beta") → beta
+      # Hasil: v0.1-beta.<run_number>
+      # ----------------------------------------------------------
+      - name: Read version from CMakeLists
+        id: ver
+        shell: bash
+        run: |
+          VER=$(grep -oP 'project\(Vidi\s+VERSION\s+\K[0-9.]+' CMakeLists.txt | head -1)
+          SUF=$(grep -oP 'set\(PROJECT_VERSION_SUFFIX\s+"\K[^"]+' CMakeLists.txt | head -1)
+
+          # Fallback kalau suffix kosong / tidak ada
+          if [ -z "$SUF" ]; then
+            TAG="v${VER}.${{ github.run_number }}"
+            LABEL="v${VER}"
+          else
+            TAG="v${VER}-${SUF}.${{ github.run_number }}"
+            LABEL="v${VER}-${SUF}"
+          fi
+
+          echo "version=$VER"       >> $GITHUB_OUTPUT
+          echo "suffix=$SUF"        >> $GITHUB_OUTPUT
+          echo "tag=$TAG"           >> $GITHUB_OUTPUT
+          echo "label=$LABEL"       >> $GITHUB_OUTPUT
+
+          echo "Detected → tag=$TAG label=$LABEL"
+
+      # ----------------------------------------------------------
+      # Tandai pre-release kalau suffix bukan "release"/kosong
+      #   alpha/beta/rc  → prerelease: true
+      #   release/-      → prerelease: false
+      # ----------------------------------------------------------
+      - name: Set prerelease flag
+        id: flag
+        shell: bash
+        run: |
+          SUF="${{ steps.ver.outputs.suffix }}"
+          case "$SUF" in
+            ""|release|stable) echo "value=false" >> $GITHUB_OUTPUT ;;
+            *)                 echo "value=true"  >> $GITHUB_OUTPUT ;;
+          esac
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: build/Vidi-*.msi
-          tag_name: v0.2-alpha-${{ github.run_number }}
-          name: Release v0.2-alpha (Build ${{ github.run_number }})
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Vidi ${{ steps.ver.outputs.label }} (Build ${{ github.run_number }})
+          body: |
+            ## Vidi ${{ steps.ver.outputs.label }}
+
+            **Commit:** ${{ github.sha }}
+            **Build:** #${{ github.run_number }}
+
+            Installer Windows 64-bit tersedia di file `.msi` di bawah.
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.flag.outputs.value }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
