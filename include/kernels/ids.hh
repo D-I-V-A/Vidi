@@ -166,6 +166,7 @@
 // ==========================================
 #define ID_TIMER_UPDATE 3001
 #define ID_TIMER_OSI_HIDE 3002
+#define ID_TIMER_SUBTITLE_REFRESH 3003
 #define TIMER_INTERVAL_MS 33
 
 #define IDC_FS_OVERLAY 6001

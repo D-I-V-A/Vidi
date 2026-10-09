@@ -11,9 +11,12 @@
 #include <map>
 #include <vector>
 #include <string>
+#include <shobjidl.h>
 
 namespace guiVidi {
-
+const COMDLG_FILTERSPEC filters[] = {
+    {L"Video/Audio Files", L"*.mp4;*.mkv;*.avi;*.mov;*.wmv;*.webm;*.m4v;*.ts;*.flv;*.mp3;*.aac;*.flac;*.wav;*.ogg"},
+    {L"Semua File", L"*.*"}};
 class VideoPlayerGUI {
   private:
     HWND g_hPlayBtn, g_hStopBtn;
@@ -34,6 +37,7 @@ class VideoPlayerGUI {
 
     kernelPlayerVidi::DirectShowPlayer m_player;
     bool m_isDraggingProgress;
+    bool m_videoLayoutApplied;
     bool m_isPlaying;
     DWORD m_lastSeekTick;
     DWORD m_lastDurCheckTick;
@@ -93,6 +97,7 @@ class VideoPlayerGUI {
     bool m_subNeedsUpdate = false;
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void CreateMenuBar(HWND hwnd);
+    void UpdateMenuState(bool hasMedia);
     void LayoutControls(int width, int height);
     void CreateControls(HWND hwnd);
     void OnCommand(WPARAM wParam, LPARAM lParam);
@@ -139,6 +144,7 @@ class VideoPlayerGUI {
     void BeginSubtitleSeekDelay();
     void BeginSubtitleDelay();
     void HideAllSubOverlays();
+    void HideSubOverlayWindows();
     HACCEL CreatePlayerAccelTable();
     void UpdateVolumePercent(int pos);
     void SetToggleBtnState(HWND btn, bool active);
@@ -183,6 +189,7 @@ class VideoPlayerGUI {
           m_hTimeFont(nullptr),
           m_hTipFont(nullptr),
           m_isDraggingProgress(false),
+          m_videoLayoutApplied(false),
           m_isPlaying(false),
           m_lastSeekTick(0),
           m_lastDurCheckTick(0),

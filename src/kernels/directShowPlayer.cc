@@ -1,33 +1,19 @@
 #include "../../include/kernels/directShowPlayer.hh"
 #include "../../include/kernels/ids.hh"
 #include <mmreg.h> // WAVEFORMATEXTENSIBLE, WAVE_FORMAT_IEEE_FLOAT
+#include <strmif.h>
 #include <cmath>
 #include <string>
 #include <cstdio>
 #include <cstdarg>
 namespace kernelPlayerVidi {
 
-// MEDIATYPE_Subtitle tidak dideklarasikan di strmif.h SDK
-static const GUID GUID_MediaTypeSubtitle = {
-    0x736c6774, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
-static const CLSID CLSID_LAVSplitter = {0x171252A0, 0x8820, 0x4AFE, {0x9D, 0xF8, 0x5C, 0x92, 0xB2, 0xD6, 0x6B, 0x04}};
-// "LAV Splitter Source" = file-source yang implement IFileSourceFilter
-static const CLSID CLSID_LAVSplitterSource = {
-    0xB98D13E7, 0x55DB, 0x4385, {0xA3, 0x3D, 0x09, 0xFD, 0x1B, 0xA2, 0x63, 0x38}};
-static const CLSID CLSID_LAVVideo = {0xEE30215D, 0x164F, 0x4A92, {0xA4, 0xEB, 0x9D, 0x4C, 0x13, 0x39, 0x0F, 0x9F}};
-static const CLSID CLSID_LAVAudio = {0xE8E73B6B, 0x4CB3, 0x44A4, {0xBE, 0x99, 0x4F, 0x7B, 0xCB, 0x96, 0xE4, 0x91}};
-// VSFilter / DirectVobSub (xy-VSFilter juga memakai CLSID ini)
-static const CLSID CLSID_DirectVobSub = {0x93a22e7a, 0x1291, 0x45c5, {0xba, 0x6f, 0x6b, 0x54, 0x29, 0xeb, 0x7a, 0x53}};
-// [FIX ANTI-HIJAU] VMR-7 (Video Mixing Renderer). Tanpa ini Intelligent Connect
-// bisa jatuh ke legacy Video Renderer yang frame idle-nya berupa GRADIENT HIJAU +
-// logo blur khas quartz.dll -- muncul saat maximize/repaint tanpa frame baru.
-static const CLSID CLSID_VMR7 = {0x87A59784, 0x25CF, 0x4A13, {0x9B, 0xBE, 0x0D, 0xE8, 0x85, 0x58, 0xFF, 0xC5}};
-
 enum {
     SG_FMT_PASSTHROUGH = 0,
     SG_FMT_INT16 = 1,
     SG_FMT_FLOAT32 = 2
 };
+
 static std::wstring GetExeDirW() {
     wchar_t path[MAX_PATH];
     GetModuleFileNameW(nullptr, path, MAX_PATH);
@@ -552,26 +538,11 @@ void DirectShowPlayer::DestroyGraph() {
         m_pGraph = nullptr;
     }
 
-    if (m_hLavSplitterDll) {
-        FreeLibrary(m_hLavSplitterDll);
-        m_hLavSplitterDll = nullptr;
-    }
-    if (m_hLavVideoDll) {
-        FreeLibrary(m_hLavVideoDll);
-        m_hLavVideoDll = nullptr;
-    }
-    if (m_hLavAudioDll) {
-        FreeLibrary(m_hLavAudioDll);
-        m_hLavAudioDll = nullptr;
-    }
-    if (m_hVSFilterDll) {
-        FreeLibrary(m_hVSFilterDll);
-        m_hVSFilterDll = nullptr;
-    }
-
     m_subReader.Close();
     m_graphBuilt = false;
     m_vsFilterSubtitleActive = false;
+    m_dspGain.store(1.0f);
+    m_dspFmt.store(SG_FMT_PASSTHROUGH);
 }
 
 IBaseFilter* DirectShowPlayer::FindFilterByName(const wchar_t* name) {
@@ -610,28 +581,35 @@ IBaseFilter* DirectShowPlayer::FindFilterByName(const wchar_t* name) {
     return pFilter;
 }
 IBaseFilter* DirectShowPlayer::LoadUnregisteredFilter(const wchar_t* dllPath, REFCLSID clsid, HMODULE* pOutModule) {
-    HMODULE hDll = LoadLibraryW(dllPath);
+    HMODULE hDll = *pOutModule; // ← cek dulu apakah sudah di-load
+
     if (!hDll) {
-        wchar_t dbg[512];
-        swprintf_s(dbg, L"[VIDI] LoadLibrary gagal: %s (err=%lu)\n", dllPath, GetLastError());
-        OutputDebugString(dbg);
-        return nullptr;
+        hDll = LoadLibraryW(dllPath);
+        if (!hDll) {
+            wchar_t dbg[512];
+            swprintf_s(dbg, L"[VIDI] LoadLibrary gagal: %s (err=%lu)\n", dllPath, GetLastError());
+            OutputDebugString(dbg);
+            return nullptr;
+        }
+        *pOutModule = hDll;
+        VLog(L"[VIDI] LoadLibrary OK: %s", dllPath);
+    } else {
+        // Sudah di-load sebelumnya, reuse
+        VLog(L"[VIDI] Reuse DLL: %s", dllPath);
     }
 
     typedef HRESULT(STDAPICALLTYPE * DllGetClassObjectFunc)(REFCLSID, REFIID, LPVOID*);
     DllGetClassObjectFunc pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hDll, "DllGetClassObject");
 
     if (!pDllGetClassObject) {
-        OutputDebugString(L"[VIDI] DllGetClassObject tidak ditemukan di DLL\n");
-        FreeLibrary(hDll);
+        OutputDebugString(L"[VIDI] DllGetClassObject tidak ditemukan\n");
+        // JANGAN FreeLibrary di sini — biarkan tetap loaded
         return nullptr;
     }
 
     IClassFactory* pClassFactory = nullptr;
     HRESULT hr = pDllGetClassObject(clsid, IID_IClassFactory, (void**)&pClassFactory);
     if (FAILED(hr) || !pClassFactory) {
-        OutputDebugString(L"[VIDI] DllGetClassObject gagal cari IClassFactory\n");
-        FreeLibrary(hDll);
         return nullptr;
     }
 
@@ -640,14 +618,12 @@ IBaseFilter* DirectShowPlayer::LoadUnregisteredFilter(const wchar_t* dllPath, RE
     pClassFactory->Release();
 
     if (FAILED(hr) || !pFilter) {
-        OutputDebugString(L"[VIDI] CreateInstance gagal buat IBaseFilter\n");
-        FreeLibrary(hDll);
         return nullptr;
     }
 
-    *pOutModule = hDll;
     return pFilter;
 }
+
 GUID DirectShowPlayer::GetPinMajorType(IPin* pPin) {
     GUID result = GUID_NULL;
     IEnumMediaTypes* pEnumMT = nullptr;
@@ -737,7 +713,25 @@ bool DirectShowPlayer::OpenFile(const wchar_t* path) {
             VLog(L"[VIDI] QI IFileSourceFilter hr=0x%08X", (unsigned int)hr);
             if (SUCCEEDED(hr) && pFileSource) {
                 hr = pFileSource->Load(path, nullptr);
-                pFileSource->Release();
+                IAMStreamSelect* pStreamSelect = nullptr;
+                if (SUCCEEDED(pSplitter->QueryInterface(IID_IAMStreamSelect, (void**)&pStreamSelect))) {
+                    DWORD count = 0;
+                    if (SUCCEEDED(pStreamSelect->Count(&count))) {
+                        VLog(L"[VIDI] Splitter punya %u stream", count);
+                        for (DWORD i = 0; i < count; ++i) {
+
+                            HRESULT hrEn = pStreamSelect->Enable(i, AMSTREAMSELECTENABLE_ENABLE);
+                            if (SUCCEEDED(hrEn)) {
+                                VLog(L"[VIDI] Enable stream[%u] OK (hr=0x%08X)", i, (unsigned int)hrEn);
+                            } else {
+                                VLog(L"[VIDI] Enable stream[%u] gagal hr=0x%08X", i, (unsigned int)hrEn);
+                            }
+                        }
+                    }
+                    pStreamSelect->Release();
+                } else {
+                    VLog(L"[VIDI] Splitter tidak expose IAMStreamSelect");
+                }
                 VLog(L"[VIDI] Load file hr=0x%08X", (unsigned int)hr);
                 if (SUCCEEDED(hr)) {
                     IBaseFilter* pLavVideo = LoadUnregisteredFilter((exeDir + L"\\filters\\x64\\LAVVideo.ax").c_str(),
@@ -844,7 +838,8 @@ bool DirectShowPlayer::OpenFile(const wchar_t* path) {
                         if (pVSFilter) {
                             OutputDebugString(L"[VIDI] VSFilter berhasil di-load\n");
                             m_pGraph->AddFilter(pVSFilter, L"VSFilter");
-
+                            m_pVSFilter = pVSFilter; // ✅ SIMPAN KE MEMBER
+                            m_pVSFilter->AddRef();   // ✅ HOLD REFERENCE SENDIRI
                             IPin* lavVideoIn = FindUnconnectedPin(pLavVideo, PINDIR_INPUT);
                             IPin* lavVideoOut = lavVideoIn ? FindUnconnectedPin(pLavVideo, PINDIR_OUTPUT) : nullptr;
                             IPin* vsVideoIn = FindPinByMajorType(pVSFilter, PINDIR_INPUT, MEDIATYPE_Video);
@@ -857,6 +852,24 @@ bool DirectShowPlayer::OpenFile(const wchar_t* path) {
                             if (connectedLav && lavVideoOut && vsVideoIn)
                                 connectedVs = SUCCEEDED(m_pGraph->ConnectDirect(lavVideoOut, vsVideoIn, nullptr));
 
+                            // ============================================
+                            // [FIX SUBTITLE] Sambungkan subtitle pin ke VSFilter
+                            // dengan fallback Connect() kalau ConnectDirect gagal
+                            // (media type subtitle sering tidak match byte-by-byte)
+                            // ============================================
+                            bool connectedSub = false;
+                            if (connectedVs && pSubPin && vsSubIn) {
+                                HRESULT hrSub = m_pGraph->ConnectDirect(pSubPin, vsSubIn, nullptr);
+                                if (FAILED(hrSub)) {
+                                    hrSub = m_pGraph->Connect(pSubPin, vsSubIn);
+                                }
+                                connectedSub = SUCCEEDED(hrSub);
+                                VLog(L"[VIDI] VSFilter subtitle pin connected=%d", connectedSub ? 1 : 0);
+                            }
+
+                            // Set flag supaya GUI tahu VSFilter aktif
+                            m_vsFilterSubtitleActive = connectedSub;
+                            VLog(L"[VIDI] m_vsFilterSubtitleActive = %d", m_vsFilterSubtitleActive ? 1 : 0);
                             bool rendered = false;
                             if (connectedVs && vsOut) {
                                 hr = m_pGraph->Render(vsOut);
@@ -979,11 +992,20 @@ bool DirectShowPlayer::OpenFile(const wchar_t* path) {
     }
 
     Play();
+    m_mediaReadyGen++;
     // Load subtitles asynchronously — don't block main thread
-    m_subLoadPath = path;
-    m_mediaReadyGen++; // invalidate stale WM_APP_MEDIA_READY from previous file
-    m_hSubThread = CreateThread(nullptr, 0, SubtitleLoadThreadProc, this, 0, nullptr);
-    VLog(L"[VIDI] Subtitle loading started in background thread");
+    if (m_vsFilterSubtitleActive) {
+        VLog(L"[VIDI] VSFilter aktif — skip SubtitleReader thread");
+        // Langsung kabari GUI
+        if (m_hNotifyWnd) {
+            PostMessage(m_hNotifyWnd, WM_APP_MEDIA_READY, (WPARAM)m_mediaReadyGen.load(), 0);
+        }
+    } else {
+        VLog(L"[VIDI] VSFilter tidak aktif — load via SubtitleReader");
+        m_subLoadPath = path;
+        m_hSubThread = CreateThread(nullptr, 0, SubtitleLoadThreadProc, this, 0, nullptr);
+    }
+
     return true;
 }
 
@@ -1002,19 +1024,33 @@ DWORD WINAPI DirectShowPlayer::SubtitleLoadThreadProc(LPVOID lpParam) {
     return 0;
 }
 
-// [FIX PERFORMA] Timeout diturunkan 5000 -> 500 ms.
+// Timeout diturunkan 5000 -> 500 ms.
 // Kalau thread subtitle lama masih hidup (jarang), biarkan selesai sendiri;
 // PostMessage-nya akan diabaikan GUI karena mediaReadyGen sudah berubah.
+// Gunakan cancel flag; hindari TerminateThread.
+// TerminateThread pada thread FFmpeg bisa menyebabkan deadlock/corruption.
 void DirectShowPlayer::WaitForSubtitles() {
-    if (m_hSubThread) {
-        DWORD r = WaitForSingleObject(m_hSubThread, 500);
-        if (r == WAIT_OBJECT_0) {
-            CloseHandle(m_hSubThread);
-            m_hSubThread = nullptr;
-        }
-        // Timeout: thread lama tetap jalan, handle dibiarkan hidup.
-        // Akan di-close di Shutdown() atau OpenFile berikutnya.
+    if (!m_hSubThread)
+        return;
+
+    // Minta thread berhenti secara graceful
+    m_subReader.RequestCancel();
+
+    // Timeout lebih longgar (5 detik) — cukup untuk kebanyakan file
+    DWORD r = WaitForSingleObject(m_hSubThread, 5000);
+    if (r == WAIT_OBJECT_0) {
+        CloseHandle(m_hSubThread);
+        VLog(L"[VIDI] WaitForSubtitles: selesai natural");
+    } else {
+        VLog(L"[VIDI] WaitForSubtitles: TIMEOUT — thread dilepas (TIDAK di-TerminateThread)");
+        // Close handle dan biarkan thread selesai sendiri. Karena reader
+        // sudah menerima RequestCancel, ia akan berhenti secepatnya.
+        CloseHandle(m_hSubThread);
     }
+    m_hSubThread = nullptr;
+
+    // Reset reader (aman karena thread sudah menerima cancel)
+    m_subReader.Close();
 }
 
 void DirectShowPlayer::Play() {
@@ -1170,7 +1206,14 @@ void DirectShowPlayer::HandleGraphEvent() {
             if (m_hNotifyWnd)
                 PostMessage(m_hNotifyWnd, WM_APP_PLAYBACK_ENDED, 0, 0);
             break;
-
+        case EC_VIDEO_SIZE_CHANGED:
+            VLog(L"[VIDI] EC_VIDEO_SIZE_CHANGED — re-layout video window");
+            UpdateVideoSize();
+            if (m_hNotifyWnd) {
+                // Beri tahu GUI supaya layout kontrol juga di-refresh
+                PostMessage(m_hNotifyWnd, WM_SIZE, SIZE_RESTORED, 0);
+            }
+            break;
         case EC_REPAINT: {
             static DWORD s_lastRepaintTick = 0;
             DWORD nowTick = GetTickCount();
@@ -1200,6 +1243,25 @@ void DirectShowPlayer::Shutdown() {
     WaitForSubtitles();
     DestroyGraph();
     m_subReader.FullShutdown();
+
+    // ✅ FreeLibrary hanya di sini — sekali seumur hidup aplikasi
+    if (m_hLavSplitterDll) {
+        FreeLibrary(m_hLavSplitterDll);
+        m_hLavSplitterDll = nullptr;
+    }
+    if (m_hLavVideoDll) {
+        FreeLibrary(m_hLavVideoDll);
+        m_hLavVideoDll = nullptr;
+    }
+    if (m_hLavAudioDll) {
+        FreeLibrary(m_hLavAudioDll);
+        m_hLavAudioDll = nullptr;
+    }
+    if (m_hVSFilterDll) {
+        FreeLibrary(m_hVSFilterDll);
+        m_hVSFilterDll = nullptr;
+    }
+
     if (m_comInitialized) {
         CoUninitialize();
         m_comInitialized = false;
