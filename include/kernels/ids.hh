@@ -4,6 +4,7 @@
 
 #include <windows.h>
 
+#define IDI_VIDI_APP 101
 // ==========================================
 // CONTROL IDs (UI Elements)
 // ==========================================
@@ -180,6 +181,7 @@
 #define WM_APP_GRAPH_EVENT (WM_APP + 10)
 #define WM_APP_FS_DEACTIVATE (WM_APP + 20)
 #define WM_APP_FS_ACTIVATE (WM_APP + 21)
+#define WM_APP_FS_REFRESH (WM_APP + 22)
 // ==========================================
 // ACCELERATOR TABLE
 // ==========================================

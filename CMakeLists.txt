@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 project(Vidi VERSION 0.1)
 
-set(PROJECT_VERSION_SUFFIX "alpha")
+set(PROJECT_VERSION_SUFFIX "beta")
 set(PROJECT_VERSION_FULL "${PROJECT_VERSION}-${PROJECT_VERSION_SUFFIX}")
 message(STATUS "Building ${PROJECT_NAME} v${PROJECT_VERSION_FULL}")
 
@@ -23,7 +23,8 @@ set(SOURCES
     src/kernels/directShowPlayer.cc
     src/kernels/subtitleReader.cc
     src/kernels/assRenderer.cc
-    src/app.rc
+    src/resources/vidi.rc
+    src/resources/vidi.manifest
 )
 
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES})

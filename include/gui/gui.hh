@@ -133,6 +133,7 @@ class VideoPlayerGUI {
     bool CursorOverControls();
     bool CursorOverFsOverlay();
     void CreateFsOverlay();
+    void CollectFullscreenControls(HWND* out, int& count) const;
     void DestroyFsOverlay();
     void LayoutFsOverlay(int screenW, int screenH);
     void ShowFsOverlay(bool visible);
