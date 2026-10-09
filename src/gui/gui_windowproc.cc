@@ -40,7 +40,7 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 
         pThis->CreateMenuBar(hwnd);
         pThis->CreateControls(hwnd);
-
+        pThis->UpdateMenuState(false);
         if (pThis->g_hTimeLabel) {
             SetWindowTextW(pThis->g_hTimeLabel, L"--:-- / --:--");
         }
@@ -479,14 +479,27 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             self->OnTimerTick();
         } else if (wParam == ID_TIMER_OSI_HIDE) {
             if (self->m_isFullscreen && !self->m_isDraggingProgress) {
-                // Sembunyikan overlay + cursor.
                 self->ShowOSControls(false);
-
                 if (!self->m_cursorHidden) {
                     ShowCursor(FALSE);
                     self->m_cursorHidden = true;
                 }
             }
+        } else if (wParam == ID_TIMER_SUBTITLE_REFRESH) {
+            KillTimer(hwnd, ID_TIMER_SUBTITLE_REFRESH);
+
+            // Safety guard: timer ini hanya boleh jalan saat VSFilter aktif.
+            // Jika tidak, skip — trick pause-seek-play akan menyebabkan stutter.
+            if (!self->m_player.IsVSFilterSubtitleActive()) {
+                OutputDebugStringW(L"[VIDI] Subtitle refresh timer fired without VSFilter — skip\n");
+                return 0;
+            }
+
+            OutputDebugStringW(L"[VIDI] Subtitle refresh: pause-play-seek trick\n");
+            self->m_player.Pause();
+            double p = self->m_player.GetPosition();
+            self->m_player.Seek(p + 0.1);
+            self->m_player.Play();
         }
 
         return 0;
@@ -760,21 +773,23 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
                 self->PlayFileFromPlaylist(next);
                 handled = true;
             }
-            // 2. Kalau ada file berikutnya → lanjut
+            // sesi Kalau ada file berikutnya → lanjut
             else if (self->m_playlistIndex + 1 < (int)self->m_playlist.size()) {
                 self->PlayFileFromPlaylist(self->m_playlistIndex + 1);
                 handled = true;
             }
-            // 3. Kalau file terakhir & loop aktif → ulang dari awal
+            //  file terakhir & loop aktif → ulang dari awal
             else if (self->m_isLooping && !self->m_playlist.empty()) {
                 self->PlayFileFromPlaylist(0);
                 handled = true;
             }
 
-            // 4. Kalau tidak ada yang handle → stop biasa
+            // Kalau tidak ada yang handle → stop biasa
             if (!handled) {
                 self->SetPlayPauseUI(false);
                 self->SetProgressPos(self->m_progressRangeMax);
+                self->UpdateMenuState(false);
+                self->HideSubOverlayWindows();
             }
         }
         return 0;
@@ -808,6 +823,7 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             self->SetPlayPauseUI(false);
 
             self->SetProgressPos(0);
+            self->UpdateMenuState(false);
         }
 
         return 0;
@@ -911,7 +927,7 @@ LRESULT CALLBACK VideoPlayerGUI::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 
         KillTimer(hwnd, ID_TIMER_UPDATE);
         KillTimer(hwnd, ID_TIMER_OSI_HIDE);
-
+        KillTimer(hwnd, ID_TIMER_SUBTITLE_REFRESH);
         PostQuitMessage(0);
 
         return 0;
