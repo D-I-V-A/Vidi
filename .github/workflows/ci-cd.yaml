@@ -23,30 +23,64 @@ jobs:
   build-windows-release:
     if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
+
+    env:
+      VCPKG_DEFAULT_TRIPLET: x64-windows
+      VCPKG_BUILD_TYPE: release
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      VCPKG_KEEP_ENV_VARS: ACTIONS_CACHE_URL;ACTIONS_RUNTIME_TOKEN
+
     steps:
       - uses: actions/checkout@v4
 
+      # 1) Expose GitHub Actions cache API ke vcpkg
+      - name: Export GitHub Actions cache env
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL',     process.env.ACTIONS_CACHE_URL     || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      # 2) Pin vcpkg supaya ABI hash stabil antar run
+      - name: Bootstrap pinned vcpkg
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg C:\vcpkg-pinned
+          C:\vcpkg-pinned\bootstrap-vcpkg.bat -disableMetrics
+          "VCPKG_ROOT=C:\vcpkg-pinned" | Out-File -Append $env:GITHUB_ENV
+
+      # 3) Cache installed tree (opsional, untuk partial hit)
+      - name: Cache vcpkg installed tree
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg-pinned\installed
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      # 4) Install dependencies (manifest mode; butuh vcpkg.json di root repo)
+      - name: Install dependencies via vcpkg
+        shell: cmd
+        run: C:\vcpkg-pinned\vcpkg install --clean-after-build
+
+      # 5) WiX harus terpasang sebelum cpack
       - name: Install WiX Toolset
         run: choco install wixtoolset -y
 
-      - name: Install dependencies via vcpkg
-        run: C:\vcpkg\vcpkg install
-        shell: cmd
-
+      # 6) Configure — toolchain tunggal (yang di-pin)
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
-        env:
-          VCPKG_ROOT: C:\vcpkg
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg-pinned/scripts/buildsystems/vcpkg.cmake
 
-      - run: cmake --build build --config Release
+      - name: Build
+        run: cmake --build build --config Release
 
       - name: Build Installer
         id: cpack
         run: cpack -C Release -G WIX
         working-directory: build
         continue-on-error: true
+
       - name: Show wix.log
-        if: always()
+        if: steps.cpack.outcome == 'failure'
         shell: pwsh
         run: |
           Write-Host "=== wix.log ==="
@@ -62,10 +96,11 @@ jobs:
       - name: Fail if cpack failed
         if: steps.cpack.outcome == 'failure'
         run: exit 1
+
       # ----------------------------------------------------------
       # Baca versi dari CMakeLists.txt
-      #   project(Vidi VERSION 0.1)         → 0.1
-      #   set(PROJECT_VERSION_SUFFIX "beta") → beta
+      #   project(Vidi VERSION 0.1)          -> 0.1
+      #   set(PROJECT_VERSION_SUFFIX "beta") -> beta
       # Hasil: v0.1-beta.<run_number>
       # ----------------------------------------------------------
       - name: Read version from CMakeLists
@@ -75,7 +110,11 @@ jobs:
           VER=$(grep -oP 'project\(Vidi\s+VERSION\s+\K[0-9.]+' CMakeLists.txt | head -1)
           SUF=$(grep -oP 'set\(PROJECT_VERSION_SUFFIX\s+"\K[^"]+' CMakeLists.txt | head -1)
 
-          # Fallback kalau suffix kosong / tidak ada
+          if [ -z "$VER" ]; then
+            echo "::error::Could not parse version from CMakeLists.txt"
+            exit 1
+          fi
+
           if [ -z "$SUF" ]; then
             TAG="v${VER}.${{ github.run_number }}"
             LABEL="v${VER}"
@@ -84,17 +123,15 @@ jobs:
             LABEL="v${VER}-${SUF}"
           fi
 
-          echo "version=$VER"       >> $GITHUB_OUTPUT
-          echo "suffix=$SUF"        >> $GITHUB_OUTPUT
-          echo "tag=$TAG"           >> $GITHUB_OUTPUT
-          echo "label=$LABEL"       >> $GITHUB_OUTPUT
+          echo "version=$VER" >> $GITHUB_OUTPUT
+          echo "suffix=$SUF"  >> $GITHUB_OUTPUT
+          echo "tag=$TAG"     >> $GITHUB_OUTPUT
+          echo "label=$LABEL" >> $GITHUB_OUTPUT
 
-          echo "Detected → tag=$TAG label=$LABEL"
+          echo "Detected -> tag=$TAG label=$LABEL"
 
       # ----------------------------------------------------------
       # Tandai pre-release kalau suffix bukan "release"/kosong
-      #   alpha/beta/rc  → prerelease: true
-      #   release/-      → prerelease: false
       # ----------------------------------------------------------
       - name: Set prerelease flag
         id: flag
