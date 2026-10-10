@@ -41,9 +41,27 @@ jobs:
       - run: cmake --build build --config Release
 
       - name: Build Installer
+        id: cpack
         run: cpack -C Release -G WIX
         working-directory: build
+        continue-on-error: true
+      - name: Show wix.log
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "=== wix.log ==="
+          $log = Get-ChildItem build\_CPack_Packages -Recurse -Filter wix.log -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($log) { Get-Content $log.FullName } else { Write-Host "not found" }
 
+          Write-Host "`n=== Component & File IDs in generated .wxs ==="
+          Get-ChildItem build\_CPack_Packages -Recurse -Filter *.wxs -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "--- $($_.Name) ---"
+            Get-Content $_.FullName | Select-String -Pattern 'Component Id=|File Id=' | Select-Object -First 30
+          }
+
+      - name: Fail if cpack failed
+        if: steps.cpack.outcome == 'failure'
+        run: exit 1
       # ----------------------------------------------------------
       # Baca versi dari CMakeLists.txt
       #   project(Vidi VERSION 0.1)         → 0.1
