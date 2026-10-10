@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <CPackWiXPatch>
 
-  <CPackWiXFragment Id="CM_CP_bin.Vidi.exe">
+  <CPackWiXFragment Id="<COMPONENT-ID-YANG-BENAR>">
 
     <Shortcut Id="DesktopShortcut"
               Directory="DesktopFolder"
               Name="Vidi"
               Description="Vidi Video &amp; Audio Player"
-              Target="[#CM_FP_bin.Vidi.exe]"
+              Target="[#<FILE-ID-YANG-BENAR>]"
               WorkingDirectory="INSTALL_ROOT" />
 
     <Shortcut Id="StartMenuShortcut"
               Directory="ProgramMenuFolder"
               Name="Vidi"
               Description="Vidi Video &amp; Audio Player"
-              Target="[#CM_FP_bin.Vidi.exe]"
+              Target="[#<FILE-ID-YANG-BENAR>]"
               WorkingDirectory="INSTALL_ROOT" />
 
   </CPackWiXFragment>
