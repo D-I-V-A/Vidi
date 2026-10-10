@@ -115,7 +115,9 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Vidi Video & Audio Player")
 
 set(CPACK_GENERATOR "WIX")
 set(CPACK_WIX_UPGRADE_GUID "A1B2C3D4-E5F6-7890-ABCD-EF1234567890")
-set(CPACK_WIX_PATCH_FILE "${CMAKE_SOURCE_DIR}/cmake/wix_shortcuts.xml")
+set(CPACK_PACKAGE_EXECUTABLES "Vidi" "Vidi Video & Audio Player")
+set(CPACK_WIX_PROGRAM_MENU_FOLDER "Vidi")
+set(CPACK_CREATE_DESKTOP_LINKS "Vidi")
 # ==============================================================================
 # UNIT TESTS
 # ==============================================================================
