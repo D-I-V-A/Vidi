@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
-project(Vidi VERSION 0.1)
+project(Vidi VERSION 1.0.0)
 
 set(PROJECT_VERSION_SUFFIX "beta")
-set(PROJECT_VERSION_FULL "${PROJECT_VERSION}-${PROJECT_VERSION_SUFFIX}")
+set(PROJECT_VERSION_FULL
+    "${PROJECT_VERSION}-${PROJECT_VERSION_SUFFIX}.${VIDI_BUILD_NUMBER}")
 message(STATUS "Building ${PROJECT_NAME} v${PROJECT_VERSION_FULL}")
 
 set(CMAKE_CXX_STANDARD 17)
@@ -70,14 +71,12 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     libass::libass
 )
 
-# Manifest di-embed manual lewat src/app.rc (RT_MANIFEST) -> matikan
-# /MANIFEST bawaan linker agar tidak terjadi duplikat resource (CVT1100).
 if(MSVC)
     target_link_options(${PROJECT_NAME} PRIVATE "/MANIFEST:NO")
 endif()
 
 # ==============================================================================
-# PERINTAH SALIN ASSET LOKAL (HANYA BERJALAN SAAT BUILD BIASA, BUKAN SAAT CPACK)
+# PERINTAH SALIN ASSET LOKAL
 # ==============================================================================
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -91,7 +90,6 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         $<TARGET_FILE_DIR:${PROJECT_NAME}>/filters
 )
 
-# Salin semua runtime DLL (libass + dependencies: harfbuzz, freetype, fribidi, dll)
 get_filename_component(VCPKG_BIN_DIR "${LIBASS_DLL}" DIRECTORY)
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -108,16 +106,30 @@ install(DIRECTORY "${VCPKG_BIN_DIR}/" DESTINATION bin FILES_MATCHING PATTERN "*.
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/ DESTINATION bin/assets)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/filters/ DESTINATION bin/filters)
 
+# Build number dari CI (-DVIDI_BUILD_NUMBER=${{ github.run_number }})
+if(NOT DEFINED VIDI_BUILD_NUMBER)
+    set(VIDI_BUILD_NUMBER "0")
+endif()
+
 set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
 set(CPACK_PACKAGE_VENDOR "Vidi Developer")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}.0")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Vidi Video & Audio Player")
+
+# WIX ProductVersion: wajib numerik MAJOR.MINOR.PATCH[.BUILD]
+# PROJECT_VERSION sudah 1.0.0 (3 komponen) -> langsung pakai
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+
+# Nama file installer: Vidi-1.0.0-beta.1-win64.msi
+set(CPACK_PACKAGE_FILE_NAME
+    "Vidi-${PROJECT_VERSION}-${PROJECT_VERSION_SUFFIX}.${VIDI_BUILD_NUMBER}-win64")
 
 set(CPACK_GENERATOR "WIX")
 set(CPACK_WIX_UPGRADE_GUID "A1B2C3D4-E5F6-7890-ABCD-EF1234567890")
 set(CPACK_PACKAGE_EXECUTABLES "Vidi" "Vidi Video & Audio Player")
 set(CPACK_WIX_PROGRAM_MENU_FOLDER "Vidi")
 set(CPACK_CREATE_DESKTOP_LINKS "Vidi")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "Vidi")
+
 # ==============================================================================
 # UNIT TESTS
 # ==============================================================================
