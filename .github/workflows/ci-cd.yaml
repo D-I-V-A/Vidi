@@ -151,7 +151,7 @@ jobs:
         with:
           files: build/Vidi-*.msi
           tag_name: ${{ steps.ver.outputs.tag }}
-          name: Vidi ${{ steps.ver.outputs.label }} (Build ${{ github.run_number }})
+          name: Vidi ${{ steps.ver.outputs.label }}
           body: |
             ## Vidi ${{ steps.ver.outputs.label }}
 
